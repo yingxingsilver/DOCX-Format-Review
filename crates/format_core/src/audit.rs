@@ -283,7 +283,14 @@ fn summarize(
     let error_count = violations.iter().filter(|v| v.severity == Severity::Error).count();
     let warning_count = violations.iter().filter(|v| v.severity == Severity::Warning).count();
     let info_count = violations.iter().filter(|v| v.severity == Severity::Info).count();
-    let status = if error_count + warning_count > 0 {
+    // “需要修改”只由确定的问题驱动：人工复核类（manual_review）提示不判负，
+    // 避免信息不全的最小文档被误标为不合格。
+    let confirmed = violations
+        .iter()
+        .filter(|v| !v.requires_manual_review)
+        .filter(|v| matches!(v.severity, Severity::Error | Severity::Warning))
+        .count();
+    let status = if confirmed > 0 {
         FileStatus::NeedsRevision
     } else {
         FileStatus::Passed

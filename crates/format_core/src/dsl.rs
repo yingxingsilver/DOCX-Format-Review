@@ -1220,7 +1220,11 @@ mod tests {
     #[test]
     fn classify_text_counts_cjk_latin_digits() {
         let s = classify_text("教育AI 2026，公平");
-        assert_eq!(s.cjk_count, 5);
+        // “教育公平”共 4 个汉字；AI=2 拉丁；2026=4 数字；全角逗号=1 标点
+        assert_eq!(s.cjk_count, 4);
+        assert_eq!(s.latin_count, 2);
+        assert_eq!(s.digit_count, 4);
+        assert_eq!(s.punctuation_count, 1);
         assert!(s.has_latin_or_digit());
         assert!(s.has_cjk());
     }

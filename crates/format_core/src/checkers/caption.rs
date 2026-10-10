@@ -24,10 +24,15 @@ fn matches_kind(doc_kind: &CaptionKind, want: &CaptionKind) -> bool {
     doc_kind == want
 }
 
+/// 编号提取正则：进程级编译一次，跨线程只读共享（审查项：避免逐段重编译）。
+fn number_re() -> &'static Regex {
+    static RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"\d+(?:-\d+)*").expect("静态正则必然合法"))
+}
+
 /// 从题注文本提取编号序列（如 “1-1” → [1,1]，“3” → [3]）。
 fn extract_numbers(text: &str) -> Vec<u32> {
-    let re = Regex::new(r"\d+(?:-\d+)*").expect("静态正则必然合法");
-    match re.find(text) {
+    match number_re().find(text) {
         Some(m) => m.as_str().split('-').filter_map(|s| s.parse::<u32>().ok()).collect(),
         None => Vec::new(),
     }
@@ -48,12 +53,20 @@ impl Checker for CaptionChecker {
         // 1) 解析器给出的高置信题注
         let parser_items: Vec<&CaptionInfo> =
             ctx.document.captions.iter().filter(|c| matches_kind(&c.kind, &self.kind)).collect();
-        // 2) 兜底：角色匹配 + pattern 命中（仅当解析器没有给出该类题注时）
+        // 2) 兜底：角色匹配 **或** pattern 命中（仅当解析器没有给出该类题注时）。
+        //    两者取“或”是因为：解析器可能只标了角色未给 CaptionInfo，也可能样式不规范但文本以“图N”开头。
+        //    兜底识别置信度低，产出的违规一律降级 info/manual_review。
         let fallback_paras: Vec<&Paragraph> = if parser_items.is_empty() {
             ctx.document
                 .paragraphs
                 .iter()
-                .filter(|p| p.role == want_role && !p.text.trim().is_empty() && self.pattern.is_match(p.text.trim()))
+                .filter(|p| {
+                    let t = p.text.trim();
+                    if t.is_empty() {
+                        return false;
+                    }
+                    p.role == want_role || self.pattern.is_match(t)
+                })
                 .collect()
         } else {
             Vec::new()
@@ -103,7 +116,9 @@ impl Checker for CaptionChecker {
                             0.85,
                         );
                         if low_confidence {
-                            v.severity = Severity::Info;
+                            // 兜底识别只降低置信度，不改变规则配置的严重级别
+                            // （对齐是段落上的确定事实，与“题注是否被认定”解耦）。
+                            v.confidence = (v.confidence - 0.3).max(0.2);
                             v.requires_manual_review = true;
                         }
                         out.push(v);

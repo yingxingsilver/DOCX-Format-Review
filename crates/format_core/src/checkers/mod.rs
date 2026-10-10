@@ -126,10 +126,13 @@ pub fn build_checker(rule: &Rule, config: &RuleConfig) -> CoreResult<CompiledChe
         }),
         RuleKind::CjkLatinSpacing { mode } => Box::new(typography::CjkLatinSpacingChecker { mode: mode.clone() }),
         RuleKind::HeadingNumbering { allowed_schemes, require_consistent, check_level_match } => {
+            let (cn_res, arabic_res) = structure::heading_default_regexes();
             Box::new(structure::HeadingNumberingChecker {
                 allowed_schemes: allowed_schemes.clone(),
                 require_consistent: *require_consistent,
                 check_level_match: *check_level_match,
+                cn_res,
+                arabic_res,
             })
         }
         RuleKind::Sequence { anchors, strict } => Box::new(structure::SequenceChecker {
