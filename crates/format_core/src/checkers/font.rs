@@ -5,8 +5,8 @@
 
 use crate::checkers::{excerpt_of, fmt_actual_pt, fmt_size_expected, violation_for, within};
 use crate::dsl::{
-    classify_text, AuditContext, Checker, EffectiveRunFormat, Location, Paragraph, RunApply,
-    RuleConfig, Severity, TextClassFilter, Violation,
+    classify_text, AuditContext, Checker, EffectiveRunFormat, Location, Paragraph, RuleConfig,
+    RunApply, Severity, TextClassFilter, Violation,
 };
 
 /// 取 run 的有效格式；求解器未给出时用直接格式兜底。
@@ -43,7 +43,11 @@ impl RunFontSizeChecker {
             return parts.join(" 或 ");
         }
         if let Some(r) = &self.range_pt {
-            return format!("{}–{} pt", crate::checkers::fmt_num(r.min), crate::checkers::fmt_num(r.max));
+            return format!(
+                "{}–{} pt",
+                crate::checkers::fmt_num(r.min),
+                crate::checkers::fmt_num(r.max)
+            );
         }
         "未能确定期望字号".into()
     }
@@ -72,8 +76,17 @@ impl Checker for RunFontSizeChecker {
         let tol = ctx.config.tolerance().font_size_pt;
         let runs: Vec<&crate::dsl::Run> = match self.apply_to {
             RunApply::AllRuns => p.runs.iter().collect(),
-            RunApply::NonEmptyRuns => p.runs.iter().filter(|r| !r.text.trim().is_empty()).collect(),
-            RunApply::PrimaryRun => p.runs.iter().filter(|r| !r.text.trim().is_empty()).take(1).collect(),
+            RunApply::NonEmptyRuns => p
+                .runs
+                .iter()
+                .filter(|r| !r.text.trim().is_empty())
+                .collect(),
+            RunApply::PrimaryRun => p
+                .runs
+                .iter()
+                .filter(|r| !r.text.trim().is_empty())
+                .take(1)
+                .collect(),
         };
         if runs.is_empty() {
             return out;
@@ -108,7 +121,11 @@ impl Checker for RunFontSizeChecker {
                     page_hint: p.page_hint,
                     object_ref: None,
                 },
-                format!("{}当前为{}。", ctx.rule.message.trim_end_matches('。'), fmt_actual_pt(sz)),
+                format!(
+                    "{}当前为{}。",
+                    ctx.rule.message.trim_end_matches('。'),
+                    fmt_actual_pt(sz)
+                ),
                 Some(self.describe(ctx.config)),
                 Some(fmt_actual_pt(sz)),
                 excerpt,
@@ -136,7 +153,11 @@ impl Checker for RunFontSizeChecker {
 
 /// 字体名归一化：忽略大小写/空格/前导 @（东亚字体常见）。
 fn norm_font(name: &str) -> String {
-    name.trim().to_lowercase().replace(' ', "").trim_start_matches('@').to_string()
+    name.trim()
+        .to_lowercase()
+        .replace(' ', "")
+        .trim_start_matches('@')
+        .to_string()
 }
 
 /// 别名表：宋体/SimSun、黑体/SimHei、楷体/KaiTi 等视为同一字体族。
@@ -145,8 +166,12 @@ fn font_alias_group(norm: &str) -> &'static [&'static str] {
     match norm {
         "宋体" | "simsun" | "中易宋体" => &["宋体", "simsun", "中易宋体"],
         "黑体" | "simhei" | "中易黑体" => &["黑体", "simhei", "中易黑体"],
-        "楷体" | "kaiti" | "楷体_gb2312" | "kaiti_gb2312" => &["楷体", "kaiti", "楷体_gb2312", "kaiti_gb2312"],
-        "仿宋" | "仿宋_gb2312" | "fangsong" | "fangsong_gb2312" => &["仿宋", "仿宋_gb2312", "fangsong", "fangsong_gb2312"],
+        "楷体" | "kaiti" | "楷体_gb2312" | "kaiti_gb2312" => {
+            &["楷体", "kaiti", "楷体_gb2312", "kaiti_gb2312"]
+        }
+        "仿宋" | "仿宋_gb2312" | "fangsong" | "fangsong_gb2312" => {
+            &["仿宋", "仿宋_gb2312", "fangsong", "fangsong_gb2312"]
+        }
         "timesnewroman" => &["timesnewroman"],
         "arial" => &["arial"],
         "calibri" => &["calibri"],
@@ -209,17 +234,23 @@ impl Checker for RunFontFamilyChecker {
                 continue;
             }
             let eff = effective_of(r);
-            for (slot, label, active) in
-                [(&eff.east_asian_font, "中文字体", want_ea), (&eff.ascii_font, "西文字体", want_ascii)]
-            {
+            for (slot, label, active) in [
+                (&eff.east_asian_font, "中文字体", want_ea),
+                (&eff.ascii_font, "西文字体", want_ascii),
+            ] {
                 if !active {
                     continue;
                 }
                 match slot {
                     None => any_missing = true,
                     Some(f) => {
-                        let bad_expected = !self.expected_fonts.is_empty() && !font_matches(f, &self.expected_fonts);
-                        let bad_blocked = self.blocked_fonts.as_ref().map(|b| font_matches(f, b)).unwrap_or(false);
+                        let bad_expected = !self.expected_fonts.is_empty()
+                            && !font_matches(f, &self.expected_fonts);
+                        let bad_blocked = self
+                            .blocked_fonts
+                            .as_ref()
+                            .map(|b| font_matches(f, b))
+                            .unwrap_or(false);
                         if (bad_expected || bad_blocked) && first_bad.is_none() {
                             first_bad = Some((r.index, label.to_string(), f.clone()));
                         }
@@ -246,7 +277,10 @@ impl Checker for RunFontFamilyChecker {
                     page_hint: p.page_hint,
                     object_ref: None,
                 },
-                format!("{}，当前{label}为“{actual}”。", ctx.rule.message.trim_end_matches('。')),
+                format!(
+                    "{}，当前{label}为“{actual}”。",
+                    ctx.rule.message.trim_end_matches('。')
+                ),
                 Some(expect),
                 Some(format!("“{actual}”")),
                 excerpt,
@@ -288,19 +322,30 @@ impl Checker for FontAllowListChecker {
     fn check_paragraph(&self, ctx: &AuditContext<'_>, p: &Paragraph) -> Vec<Violation> {
         use crate::dsl::FontListMode;
         let mut out = Vec::new();
-        let blocked_list = self.blocked_fonts.clone().unwrap_or_else(|| self.policy_blocklist.clone());
-        let allow_list = self.allowed_fonts.clone().unwrap_or_else(|| self.policy_allowlist.clone());
+        let blocked_list = self
+            .blocked_fonts
+            .clone()
+            .unwrap_or_else(|| self.policy_blocklist.clone());
+        let allow_list = self
+            .allowed_fonts
+            .clone()
+            .unwrap_or_else(|| self.policy_allowlist.clone());
         let mut hit: Option<(usize, String)> = None;
         for r in &p.runs {
             if r.text.trim().is_empty() {
                 continue;
             }
             let eff = effective_of(r);
-            let fonts: Vec<String> = [eff.east_asian_font.clone(), eff.ascii_font.clone()].into_iter().flatten().collect();
+            let fonts: Vec<String> = [eff.east_asian_font.clone(), eff.ascii_font.clone()]
+                .into_iter()
+                .flatten()
+                .collect();
             for f in fonts {
                 let bad = match self.mode {
                     FontListMode::Blocklist => font_matches(&f, &blocked_list),
-                    FontListMode::Allowlist => !allow_list.is_empty() && !font_matches(&f, &allow_list),
+                    FontListMode::Allowlist => {
+                        !allow_list.is_empty() && !font_matches(&f, &allow_list)
+                    }
                 };
                 if bad {
                     hit = Some((r.index, f));
@@ -325,8 +370,12 @@ impl Checker for FontAllowListChecker {
                     object_ref: None,
                 },
                 match self.mode {
-                    FontListMode::Blocklist => "此处使用了不建议的装饰性字体，学术论文建议使用常规字体。".to_string(),
-                    FontListMode::Allowlist => "此处使用的字体不在常用学术字体范围内，建议确认学校要求。".to_string(),
+                    FontListMode::Blocklist => {
+                        "此处使用了不建议的装饰性字体，学术论文建议使用常规字体。".to_string()
+                    }
+                    FontListMode::Allowlist => {
+                        "此处使用的字体不在常用学术字体范围内，建议确认学校要求。".to_string()
+                    }
                 },
                 Some("宋体、黑体、楷体、Times New Roman 等常规字体".into()),
                 Some(format!("“{f}”")),
@@ -349,7 +398,13 @@ pub(crate) mod tests {
     use crate::rules::tests_helper::config_from_json;
     use std::path::PathBuf;
 
-    pub(crate) fn run_with(text: &str, idx: usize, size: Option<f64>, ea: Option<&str>, ascii: Option<&str>) -> crate::dsl::Run {
+    pub(crate) fn run_with(
+        text: &str,
+        idx: usize,
+        size: Option<f64>,
+        ea: Option<&str>,
+        ascii: Option<&str>,
+    ) -> crate::dsl::Run {
         crate::dsl::Run {
             index: idx,
             text: text.into(),
@@ -372,7 +427,11 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn para(runs: Vec<crate::dsl::Run>, role: ParagraphRole) -> Paragraph {
-        let text = runs.iter().map(|r| r.text.as_str()).collect::<Vec<_>>().join("");
+        let text = runs
+            .iter()
+            .map(|r| r.text.as_str())
+            .collect::<Vec<_>>()
+            .join("");
         Paragraph {
             global_index: 0,
             block_index: 0,
@@ -411,18 +470,44 @@ pub(crate) mod tests {
 
     #[test]
     fn body_font_size_12_passes_105_fails_none_is_info() {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
         let rule = cfg.rules.iter().find(|r| r.id == "body-font-size").unwrap();
         let c = crate::checkers::build_checker(rule, &cfg).unwrap();
         let doc = empty_doc();
-        let ctx = AuditContext { document: &doc, config: &cfg, rule };
-        assert!(c.check_paragraph(&ctx, &para(vec![run_with("教育研究的发展。", 0, Some(12.0), None, None)], ParagraphRole::Body)).is_empty());
-        let vs = c.check_paragraph(&ctx, &para(vec![run_with("教育研究的发展。", 0, Some(10.5), None, None)], ParagraphRole::Body));
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule,
+        };
+        assert!(c
+            .check_paragraph(
+                &ctx,
+                &para(
+                    vec![run_with("教育研究的发展。", 0, Some(12.0), None, None)],
+                    ParagraphRole::Body
+                )
+            )
+            .is_empty());
+        let vs = c.check_paragraph(
+            &ctx,
+            &para(
+                vec![run_with("教育研究的发展。", 0, Some(10.5), None, None)],
+                ParagraphRole::Body,
+            ),
+        );
         assert_eq!(vs.len(), 1);
         assert_eq!(vs[0].severity, Severity::Error);
         assert_eq!(vs[0].expected.as_deref(), Some("小四（12 pt）"));
         assert_eq!(vs[0].actual.as_deref(), Some("约 10.5 pt"));
-        let vs = c.check_paragraph(&ctx, &para(vec![run_with("教育研究的发展。", 0, None, None, None)], ParagraphRole::Body));
+        let vs = c.check_paragraph(
+            &ctx,
+            &para(
+                vec![run_with("教育研究的发展。", 0, None, None, None)],
+                ParagraphRole::Body,
+            ),
+        );
         assert_eq!(vs.len(), 1);
         assert_eq!(vs[0].severity, Severity::Info);
         assert!(vs[0].message.contains("人工检查"));
@@ -430,11 +515,17 @@ pub(crate) mod tests {
 
     #[test]
     fn multiple_bad_runs_aggregate_to_one_violation() {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
         let rule = cfg.rules.iter().find(|r| r.id == "body-font-size").unwrap();
         let c = crate::checkers::build_checker(rule, &cfg).unwrap();
         let doc = empty_doc();
-        let ctx = AuditContext { document: &doc, config: &cfg, rule };
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule,
+        };
         let runs = vec![
             run_with("第一段文字", 0, Some(10.5), None, None),
             run_with("第二段文字", 1, Some(10.5), None, None),
@@ -448,12 +539,23 @@ pub(crate) mod tests {
 
     #[test]
     fn heading1_allows_16_and_15_rejects_14() {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
         let rule = cfg.rules.iter().find(|r| r.id == "heading1-size").unwrap();
         let c = crate::checkers::build_checker(rule, &cfg).unwrap();
         let doc = empty_doc();
-        let ctx = AuditContext { document: &doc, config: &cfg, rule };
-        let h = |sz: f64| para(vec![run_with("一、绪论", 0, Some(sz), None, None)], ParagraphRole::Heading { level: 1 });
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule,
+        };
+        let h = |sz: f64| {
+            para(
+                vec![run_with("一、绪论", 0, Some(sz), None, None)],
+                ParagraphRole::Heading { level: 1 },
+            )
+        };
         assert!(c.check_paragraph(&ctx, &h(16.0)).is_empty());
         assert!(c.check_paragraph(&ctx, &h(15.0)).is_empty());
         let vs = c.check_paragraph(&ctx, &h(14.0));
@@ -463,14 +565,54 @@ pub(crate) mod tests {
 
     #[test]
     fn cjk_font_simsun_passes_yahei_fails() {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
         let rule = cfg.rules.iter().find(|r| r.id == "body-cjk-font").unwrap();
         let c = crate::checkers::build_checker(rule, &cfg).unwrap();
         let doc = empty_doc();
-        let ctx = AuditContext { document: &doc, config: &cfg, rule };
-        assert!(c.check_paragraph(&ctx, &para(vec![run_with("教育公平研究", 0, Some(12.0), Some("宋体"), None)], ParagraphRole::Body)).is_empty());
-        assert!(c.check_paragraph(&ctx, &para(vec![run_with("教育公平研究", 0, Some(12.0), Some("SimSun"), None)], ParagraphRole::Body)).is_empty());
-        let vs = c.check_paragraph(&ctx, &para(vec![run_with("教育公平研究", 0, Some(12.0), Some("微软雅黑"), None)], ParagraphRole::Body));
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule,
+        };
+        assert!(c
+            .check_paragraph(
+                &ctx,
+                &para(
+                    vec![run_with("教育公平研究", 0, Some(12.0), Some("宋体"), None)],
+                    ParagraphRole::Body
+                )
+            )
+            .is_empty());
+        assert!(c
+            .check_paragraph(
+                &ctx,
+                &para(
+                    vec![run_with(
+                        "教育公平研究",
+                        0,
+                        Some(12.0),
+                        Some("SimSun"),
+                        None
+                    )],
+                    ParagraphRole::Body
+                )
+            )
+            .is_empty());
+        let vs = c.check_paragraph(
+            &ctx,
+            &para(
+                vec![run_with(
+                    "教育公平研究",
+                    0,
+                    Some(12.0),
+                    Some("微软雅黑"),
+                    None,
+                )],
+                ParagraphRole::Body,
+            ),
+        );
         assert_eq!(vs.len(), 1);
         assert_eq!(vs[0].severity, Severity::Error);
         assert!(vs[0].message.contains("宋体"));
@@ -478,14 +620,38 @@ pub(crate) mod tests {
 
     #[test]
     fn auto_class_checks_both_scripts_in_mixed_run() {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
         let rule = cfg.rules.iter().find(|r| r.id == "heading1-font").unwrap(); // text_class=auto, 期望黑体
         let c = crate::checkers::build_checker(rule, &cfg).unwrap();
         let doc = empty_doc();
-        let ctx = AuditContext { document: &doc, config: &cfg, rule };
-        let ok = para(vec![run_with("一、AI 技术概述", 0, Some(16.0), Some("黑体"), Some("SimHei"))], ParagraphRole::Heading { level: 1 });
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule,
+        };
+        let ok = para(
+            vec![run_with(
+                "一、AI 技术概述",
+                0,
+                Some(16.0),
+                Some("黑体"),
+                Some("SimHei"),
+            )],
+            ParagraphRole::Heading { level: 1 },
+        );
         assert!(c.check_paragraph(&ctx, &ok).is_empty());
-        let bad = para(vec![run_with("一、AI 技术概述", 0, Some(16.0), Some("宋体"), Some("SimHei"))], ParagraphRole::Heading { level: 1 });
+        let bad = para(
+            vec![run_with(
+                "一、AI 技术概述",
+                0,
+                Some(16.0),
+                Some("宋体"),
+                Some("SimHei"),
+            )],
+            ParagraphRole::Heading { level: 1 },
+        );
         let vs = c.check_paragraph(&ctx, &bad);
         assert_eq!(vs.len(), 1);
         assert!(vs[0].message.contains("中文字体"));
@@ -493,12 +659,28 @@ pub(crate) mod tests {
 
     #[test]
     fn decorative_font_blocklist_warns_without_internal_details() {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
-        let rule = cfg.rules.iter().find(|r| r.id == "decorative-font-block").unwrap();
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
+        let rule = cfg
+            .rules
+            .iter()
+            .find(|r| r.id == "decorative-font-block")
+            .unwrap();
         let c = crate::checkers::build_checker(rule, &cfg).unwrap();
         let doc = empty_doc();
-        let ctx = AuditContext { document: &doc, config: &cfg, rule };
-        let vs = c.check_paragraph(&ctx, &para(vec![run_with("封面标题", 0, Some(16.0), Some("华文彩云"), None)], ParagraphRole::Title));
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule,
+        };
+        let vs = c.check_paragraph(
+            &ctx,
+            &para(
+                vec![run_with("封面标题", 0, Some(16.0), Some("华文彩云"), None)],
+                ParagraphRole::Title,
+            ),
+        );
         assert_eq!(vs.len(), 1);
         assert_eq!(vs[0].severity, Severity::Warning);
         assert!(vs[0].message.contains("装饰性字体"));

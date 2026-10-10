@@ -20,7 +20,13 @@ pub(crate) fn has_type_tag(text: &str, tags: &[String]) -> bool {
 pub(crate) fn leading_number(re: &Regex, raw: &str) -> Option<u32> {
     re.captures(raw)
         .and_then(|c| c.get(0).map(|m| m.as_str().to_string()))
-        .and_then(|s| s.chars().filter(|ch| ch.is_ascii_digit()).collect::<String>().parse::<u32>().ok())
+        .and_then(|s| {
+            s.chars()
+                .filter(|ch| ch.is_ascii_digit())
+                .collect::<String>()
+                .parse::<u32>()
+                .ok()
+        })
 }
 
 pub struct ReferenceListChecker {
@@ -102,7 +108,10 @@ impl Checker for ReferenceListChecker {
                 out.push(violation_for(
                     ctx.rule,
                     &ctx.document.path,
-                    Location { paragraph_index: Some(entries.first().map(|e| e.0).unwrap_or(0)), ..Default::default() },
+                    Location {
+                        paragraph_index: Some(entries.first().map(|e| e.0).unwrap_or(0)),
+                        ..Default::default()
+                    },
                     Self::missing_numbers_msg(start, &missing),
                     Some(format!("从 [{start}] 开始连续编号")),
                     Some(format!("共 {} 条，存在缺号", entries.len())),
@@ -122,7 +131,15 @@ impl Checker for ReferenceListChecker {
             out.push(violation_for(
                 ctx.rule,
                 &ctx.document.path,
-                Location { paragraph_index: Some(no_tag[0].0), page_hint: ctx.document.paragraphs.get(no_tag[0].0).and_then(|p| p.page_hint), ..Default::default() },
+                Location {
+                    paragraph_index: Some(no_tag[0].0),
+                    page_hint: ctx
+                        .document
+                        .paragraphs
+                        .get(no_tag[0].0)
+                        .and_then(|p| p.page_hint),
+                    ..Default::default()
+                },
                 format!(
                     "有 {} 条参考文献未包含常见文献类型标识（如 {}），建议人工核对。",
                     no_tag.len(),
@@ -154,9 +171,19 @@ mod tests {
     use crate::dsl::ReferenceEntry;
     use crate::rules::tests_helper::config_from_json;
 
-    fn rule_ctx(doc: &ParsedDocument) -> (crate::dsl::RuleConfig, std::sync::Arc<crate::dsl::Rule>) {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
-        let rule = std::sync::Arc::new(cfg.rules.iter().find(|r| r.id == "reference-list").unwrap().clone());
+    fn rule_ctx(
+        doc: &ParsedDocument,
+    ) -> (crate::dsl::RuleConfig, std::sync::Arc<crate::dsl::Rule>) {
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
+        let rule = std::sync::Arc::new(
+            cfg.rules
+                .iter()
+                .find(|r| r.id == "reference-list")
+                .unwrap()
+                .clone(),
+        );
         (cfg, rule)
     }
 
@@ -182,7 +209,11 @@ mod tests {
         ];
         let (cfg, rule) = rule_ctx(&doc);
         let c = build_checker(&rule, &cfg).unwrap();
-        let ctx = AuditContext { document: &doc, config: &cfg, rule: &rule };
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule: &rule,
+        };
         assert!(c.check_document(&ctx).is_empty(), "连续且含类型标识应通过");
 
         let mut doc2 = empty_doc();
@@ -190,8 +221,14 @@ mod tests {
             entry(0, 1, "[1] 张三. 研究[J]. 期刊, 2020."),
             entry(1, 3, "[3] 李四. 专著[M]. 出版社, 2018."),
         ];
-        let vs = c.check_document(&AuditContext { document: &doc2, config: &cfg, rule: &rule });
-        assert!(vs.iter().any(|v| v.message.contains("缺少 [2]") && v.severity == Severity::Warning));
+        let vs = c.check_document(&AuditContext {
+            document: &doc2,
+            config: &cfg,
+            rule: &rule,
+        });
+        assert!(vs
+            .iter()
+            .any(|v| v.message.contains("缺少 [2]") && v.severity == Severity::Warning));
     }
 
     #[test]
@@ -200,7 +237,11 @@ mod tests {
         doc.reference_entries = vec![entry(0, 1, "[1] 张三. 某本没有类型标识的书. 2020.")];
         let (cfg, rule) = rule_ctx(&doc);
         let c = build_checker(&rule, &cfg).unwrap();
-        let vs = c.check_document(&AuditContext { document: &doc, config: &cfg, rule: &rule });
+        let vs = c.check_document(&AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule: &rule,
+        });
         assert_eq!(vs.len(), 1);
         assert_eq!(vs[0].severity, Severity::Warning);
         assert!(vs[0].requires_manual_review);
@@ -211,14 +252,28 @@ mod tests {
     fn fallback_scans_reference_role_paragraphs() {
         let mut doc = empty_doc();
         doc.paragraphs = vec![para(
-            vec![run_with("[1] 赵六. 实证分析[J]. 统计研究, 2019.", 0, Some(10.5), None, None)],
+            vec![run_with(
+                "[1] 赵六. 实证分析[J]. 统计研究, 2019.",
+                0,
+                Some(10.5),
+                None,
+                None,
+            )],
             ParagraphRole::ReferenceEntry,
         )];
         let (cfg, rule) = rule_ctx(&doc);
         let c = build_checker(&rule, &cfg).unwrap();
-        let vs = c.check_document(&AuditContext { document: &doc, config: &cfg, rule: &rule });
+        let vs = c.check_document(&AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule: &rule,
+        });
         // 单条 [1] 连续、含 [J]，应无违规。
-        assert!(vs.is_empty(), "{:?}", vs.iter().map(|v| &v.message).collect::<Vec<_>>());
+        assert!(
+            vs.is_empty(),
+            "{:?}",
+            vs.iter().map(|v| &v.message).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -226,7 +281,11 @@ mod tests {
         let doc = empty_doc();
         let (cfg, rule) = rule_ctx(&doc);
         let c = build_checker(&rule, &cfg).unwrap();
-        let vs = c.check_document(&AuditContext { document: &doc, config: &cfg, rule: &rule });
+        let vs = c.check_document(&AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule: &rule,
+        });
         assert_eq!(vs.len(), 1);
         assert_eq!(vs[0].severity, Severity::Info);
         assert!(vs[0].message.contains("人工检查"));
@@ -237,8 +296,14 @@ mod tests {
         let re = Regex::new(r"^\s*\[\d+\]").unwrap();
         assert_eq!(leading_number(&re, "  [12] 文献标题"), Some(12));
         assert_eq!(leading_number(&re, "无编号条目"), None);
-        assert!(has_type_tag("某某研究[J]. 期刊", &["[J]".to_string(), "[M]".to_string()]));
-        assert!(has_type_tag("Online source [EB/OL]", &["[EB/OL]".to_string()]));
+        assert!(has_type_tag(
+            "某某研究[J]. 期刊",
+            &["[J]".to_string(), "[M]".to_string()]
+        ));
+        assert!(has_type_tag(
+            "Online source [EB/OL]",
+            &["[EB/OL]".to_string()]
+        ));
         assert!(!has_type_tag("没有任何标识", &["[J]".to_string()]));
     }
 }

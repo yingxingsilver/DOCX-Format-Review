@@ -196,7 +196,7 @@ impl DocumentModel {
 // ============================================================================
 
 /// 段落直接格式（pPr）。字段为 None 表示未显式设置，需沿样式链继承。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ParagraphProps {
     /// 段前距，pt。
     pub space_before_pt: Option<f64>,
@@ -220,26 +220,8 @@ pub struct ParagraphProps {
     pub raw_xml: Option<String>,
 }
 
-impl Default for ParagraphProps {
-    fn default() -> Self {
-        Self {
-            space_before_pt: None,
-            space_after_pt: None,
-            line_spacing_rule: None,
-            line_spacing_pt: None,
-            first_line_indent_chars: None,
-            first_line_indent_pt: None,
-            indent_left_pt: None,
-            indent_right_pt: None,
-            alignment: None,
-            outline_level: None,
-            raw_xml: None,
-        }
-    }
-}
-
 /// 字符直接格式（rPr）。字号已统一为 pt（OOXML 半磅值除以 2）。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RunProps {
     /// 字号，pt。
     pub font_size_pt: Option<f64>,
@@ -907,8 +889,7 @@ mod tests {
         }
         assert_eq!(cfg.rules[1].applies_to, RuleScope::HeadingLevel(1));
         // 序列化回去再解析，保证 DSL 双向稳定。
-        let back: RuleConfig =
-            serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
+        let back: RuleConfig = serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
         assert_eq!(cfg, back);
     }
 
@@ -929,11 +910,20 @@ mod tests {
               "type": "italic", "expected": false }
         ]"#;
         let rules: Vec<RuleDef> = serde_json::from_str(json).expect("parse");
-        assert!(matches!(&rules[0].body, RuleBody::Margin { margins } if approx_eq(margins.left_pt.unwrap(), 90.0)));
-        assert!(matches!(&rules[1].body, RuleBody::Punctuation { spec } if spec.forbidden.len() == 2));
-        assert!(matches!(&rules[2].body, RuleBody::CaptionNumber { spec } if spec.numbering == CaptionNumbering::ChapterDash && spec.require_centered));
+        assert!(
+            matches!(&rules[0].body, RuleBody::Margin { margins } if approx_eq(margins.left_pt.unwrap(), 90.0))
+        );
+        assert!(
+            matches!(&rules[1].body, RuleBody::Punctuation { spec } if spec.forbidden.len() == 2)
+        );
+        assert!(
+            matches!(&rules[2].body, RuleBody::CaptionNumber { spec } if spec.numbering == CaptionNumbering::ChapterDash && spec.require_centered)
+        );
         assert!(matches!(&rules[3].body, RuleBody::Bold { expected: true }));
-        assert!(matches!(&rules[4].body, RuleBody::Italic { expected: false }));
+        assert!(matches!(
+            &rules[4].body,
+            RuleBody::Italic { expected: false }
+        ));
     }
 
     #[test]

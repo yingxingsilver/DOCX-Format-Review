@@ -5,8 +5,8 @@
 
 use crate::checkers::{excerpt_of, violation_for};
 use crate::dsl::{
-    AuditContext, Checker, Location, Paragraph, ParagraphRole, PunctuationMode, Severity,
-    SpacingMode, Violation, is_cjk_ideograph,
+    is_cjk_ideograph, AuditContext, Checker, Location, Paragraph, ParagraphRole, PunctuationMode,
+    Severity, SpacingMode, Violation,
 };
 use regex::Regex;
 
@@ -75,9 +75,7 @@ impl PunctuationChecker {
                 continue;
             }
             // ConsistentOnly 模式第一版只报告最典型的逗号/分号混用。
-            if matches!(self.mode, PunctuationMode::ConsistentOnly)
-                && !matches!(c, ',' | ';')
-            {
+            if matches!(self.mode, PunctuationMode::ConsistentOnly) && !matches!(c, ',' | ';') {
                 continue;
             }
             if let Some(&(ascii, full)) = ASCII_PUNCT.iter().find(|(a, _)| *a == c) {
@@ -209,9 +207,21 @@ mod tests {
     use crate::checkers::font::tests::{empty_doc, para, run_with};
     use crate::rules::tests_helper::config_from_json;
 
-    fn punct_checker() -> (crate::dsl::RuleConfig, std::sync::Arc<crate::dsl::Rule>, crate::checkers::CompiledChecker) {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
-        let rule = std::sync::Arc::new(cfg.rules.iter().find(|r| r.id == "punctuation-consistency").unwrap().clone());
+    fn punct_checker() -> (
+        crate::dsl::RuleConfig,
+        std::sync::Arc<crate::dsl::Rule>,
+        crate::checkers::CompiledChecker,
+    ) {
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
+        let rule = std::sync::Arc::new(
+            cfg.rules
+                .iter()
+                .find(|r| r.id == "punctuation-consistency")
+                .unwrap()
+                .clone(),
+        );
         let c = build_checker(&rule, &cfg).unwrap();
         (cfg, rule, c)
     }
@@ -220,8 +230,21 @@ mod tests {
     fn ascii_comma_in_cjk_warns() {
         let (cfg, rule, c) = punct_checker();
         let doc = empty_doc();
-        let ctx = AuditContext { document: &doc, config: &cfg, rule: &rule };
-        let p = para(vec![run_with("教育公平,是重要的议题。", 0, Some(12.0), None, None)], ParagraphRole::Body);
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule: &rule,
+        };
+        let p = para(
+            vec![run_with(
+                "教育公平,是重要的议题。",
+                0,
+                Some(12.0),
+                None,
+                None,
+            )],
+            ParagraphRole::Body,
+        );
         let vs = c.check_paragraph(&ctx, &p);
         assert_eq!(vs.len(), 1);
         assert_eq!(vs[0].severity, Severity::Warning);
@@ -233,8 +256,21 @@ mod tests {
     fn pure_english_paragraph_not_flagged() {
         let (cfg, rule, c) = punct_checker();
         let doc = empty_doc();
-        let ctx = AuditContext { document: &doc, config: &cfg, rule: &rule };
-        let p = para(vec![run_with("This is an English sentence, with commas.", 0, Some(12.0), None, None)], ParagraphRole::Body);
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule: &rule,
+        };
+        let p = para(
+            vec![run_with(
+                "This is an English sentence, with commas.",
+                0,
+                Some(12.0),
+                None,
+                None,
+            )],
+            ParagraphRole::Body,
+        );
         assert!(c.check_paragraph(&ctx, &p).is_empty());
     }
 
@@ -242,9 +278,19 @@ mod tests {
     fn reference_entry_with_ascii_punct_not_flagged() {
         let (cfg, rule, c) = punct_checker();
         let doc = empty_doc();
-        let ctx = AuditContext { document: &doc, config: &cfg, rule: &rule };
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule: &rule,
+        };
         let p = para(
-            vec![run_with("[1] 张三. 教育公平研究[J]. 教育研究, 2020, 41(3): 12-20.", 0, Some(12.0), None, None)],
+            vec![run_with(
+                "[1] 张三. 教育公平研究[J]. 教育研究, 2020, 41(3): 12-20.",
+                0,
+                Some(12.0),
+                None,
+                None,
+            )],
             ParagraphRole::ReferenceEntry,
         );
         assert!(c.check_paragraph(&ctx, &p).is_empty());
@@ -264,36 +310,82 @@ mod tests {
         let rule = cfg.rules.first().unwrap();
         let c = build_checker(rule, &cfg).unwrap();
         let doc = empty_doc();
-        let ctx = AuditContext { document: &doc, config: &cfg, rule };
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule,
+        };
         let p = para(
-            vec![run_with("详见 https://example.com/a,b,c 网站。", 0, Some(12.0), None, None)],
+            vec![run_with(
+                "详见 https://example.com/a,b,c 网站。",
+                0,
+                Some(12.0),
+                None,
+                None,
+            )],
             ParagraphRole::Body,
         );
-        assert!(c.check_paragraph(&ctx, &p).is_empty(), "URL 内的英文逗号应被例外屏蔽");
+        assert!(
+            c.check_paragraph(&ctx, &p).is_empty(),
+            "URL 内的英文逗号应被例外屏蔽"
+        );
     }
 
     #[test]
     fn cjk_latin_space_recommend_is_info_only() {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
-        let rule = cfg.rules.iter().find(|r| r.id == "cjk-latin-space").unwrap();
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
+        let rule = cfg
+            .rules
+            .iter()
+            .find(|r| r.id == "cjk-latin-space")
+            .unwrap();
         // 该规则默认 enabled=false，这里直接手动构造 checker 验证行为。
         let c = build_checker(rule, &cfg).unwrap();
         let doc = empty_doc();
-        let ctx = AuditContext { document: &doc, config: &cfg, rule };
-        let p = para(vec![run_with("推进AI技术与教育融合。", 0, Some(12.0), None, None)], ParagraphRole::Body);
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule,
+        };
+        let p = para(
+            vec![run_with(
+                "推进AI技术与教育融合。",
+                0,
+                Some(12.0),
+                None,
+                None,
+            )],
+            ParagraphRole::Body,
+        );
         let vs = c.check_paragraph(&ctx, &p);
         assert_eq!(vs.len(), 1);
         assert_eq!(vs[0].severity, Severity::Info);
         assert!(vs[0].message.contains("空格"));
         // 已含空格的文本不误报
-        let ok = para(vec![run_with("推进 AI 技术与教育融合。", 0, Some(12.0), None, None)], ParagraphRole::Body);
+        let ok = para(
+            vec![run_with(
+                "推进 AI 技术与教育融合。",
+                0,
+                Some(12.0),
+                None,
+                None,
+            )],
+            ParagraphRole::Body,
+        );
         assert!(c.check_paragraph(&ctx, &ok).is_empty());
     }
 
     #[test]
     fn disabled_by_default_rule_not_built_in_shipped_config() {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
         let built = crate::checkers::build_checkers(&cfg).unwrap();
-        assert!(!built.iter().any(|c| c.rule_id() == "cjk-latin-space"), "cjk-latin-space 默认应禁用");
+        assert!(
+            !built.iter().any(|c| c.rule_id() == "cjk-latin-space"),
+            "cjk-latin-space 默认应禁用"
+        );
     }
 }

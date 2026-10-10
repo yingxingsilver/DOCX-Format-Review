@@ -39,7 +39,10 @@ pub fn load_rule_config(path: impl AsRef<Path>) -> CoreResult<RuleConfig> {
         });
     }
     let text = std::fs::read_to_string(path).map_err(|e| CoreError::Io {
-        context: format!("读取规则文件“{}”", path.file_name().unwrap_or_default().to_string_lossy()),
+        context: format!(
+            "读取规则文件“{}”",
+            path.file_name().unwrap_or_default().to_string_lossy()
+        ),
         source: e,
     })?;
     parse_rule_config(&text, &path.display().to_string())
@@ -82,7 +85,9 @@ fn precompile_regexes_of(rule: &Rule) -> CoreResult<()> {
         K::Caption { pattern, .. } => patterns.push(pattern),
         K::ReferenceList { entry_pattern, .. } => patterns.push(entry_pattern),
         K::Punctuation { exceptions, .. } => patterns.extend(exceptions.iter().map(|s| s.as_str())),
-        K::Sequence { anchors, .. } => patterns.extend(anchors.iter().filter_map(|a| a.regex.as_deref())),
+        K::Sequence { anchors, .. } => {
+            patterns.extend(anchors.iter().filter_map(|a| a.regex.as_deref()))
+        }
         _ => {}
     }
     if let Some(t) = &rule.target {
@@ -91,7 +96,10 @@ fn precompile_regexes_of(rule: &Rule) -> CoreResult<()> {
         }
     }
     for p in patterns {
-        Regex::new(p).map_err(|e| CoreError::InvalidRegex { rule_id: rule.id.clone(), source: e })?;
+        Regex::new(p).map_err(|e| CoreError::InvalidRegex {
+            rule_id: rule.id.clone(),
+            source: e,
+        })?;
     }
     Ok(())
 }
@@ -105,8 +113,16 @@ pub fn apply_profile(config: &RuleConfig, profile_name: &str) -> CoreResult<Rule
         .profiles
         .get(profile_name)
         .cloned()
-        .or_else(|| if profile_name == "normal" { Some(Default::default()) } else { None })
-        .ok_or_else(|| CoreError::UnknownProfile { profile: profile_name.to_string() })?;
+        .or_else(|| {
+            if profile_name == "normal" {
+                Some(Default::default())
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| CoreError::UnknownProfile {
+            profile: profile_name.to_string(),
+        })?;
 
     let mut out = config.clone();
     for ov in &profile.overrides {
@@ -160,7 +176,11 @@ mod tests {
 
     #[test]
     fn loads_shipped_rules_json() {
-        let cfg = load_rule_config(concat!(env!("CARGO_MANIFEST_DIR"), "/../../resources/rules/education_generic.json")).unwrap();
+        let cfg = load_rule_config(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../resources/rules/education_generic.json"
+        ))
+        .unwrap();
         assert_eq!(cfg.rules.len(), 40);
         assert_eq!(cfg.defaults.tolerance.font_size_pt, 0.5);
         assert_eq!(cfg.font_size_alias_cn(12.0), Some("小四"));
@@ -193,11 +213,19 @@ mod tests {
     fn strict_profile_upgrades_severity() {
         let cfg = parse_rule_config(&sample_json(), "<test>").unwrap();
         let strict = apply_profile(&cfg, "strict").unwrap();
-        let ls = strict.rules.iter().find(|r| r.id == "body-line-spacing").unwrap();
+        let ls = strict
+            .rules
+            .iter()
+            .find(|r| r.id == "body-line-spacing")
+            .unwrap();
         assert_eq!(ls.severity, Severity::Error);
         // normal 保持原样
         let normal = apply_profile(&cfg, "normal").unwrap();
-        let ls = normal.rules.iter().find(|r| r.id == "body-line-spacing").unwrap();
+        let ls = normal
+            .rules
+            .iter()
+            .find(|r| r.id == "body-line-spacing")
+            .unwrap();
         assert_eq!(ls.severity, Severity::Warning);
     }
 
@@ -205,8 +233,22 @@ mod tests {
     fn loose_profile_disables_rules() {
         let cfg = parse_rule_config(&sample_json(), "<test>").unwrap();
         let loose = apply_profile(&cfg, "loose").unwrap();
-        assert!(!loose.rules.iter().find(|r| r.id == "abstract-length").unwrap().enabled);
-        assert!(!loose.rules.iter().find(|r| r.id == "cjk-latin-space").unwrap().enabled);
+        assert!(
+            !loose
+                .rules
+                .iter()
+                .find(|r| r.id == "abstract-length")
+                .unwrap()
+                .enabled
+        );
+        assert!(
+            !loose
+                .rules
+                .iter()
+                .find(|r| r.id == "cjk-latin-space")
+                .unwrap()
+                .enabled
+        );
     }
 
     #[test]

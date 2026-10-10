@@ -20,7 +20,9 @@ pub mod reference;
 pub mod structure;
 pub mod typography;
 
-use crate::dsl::{Location, Paragraph, Rule, RuleConfig, RuleKind, Severity, TargetSpec, Violation};
+use crate::dsl::{
+    Location, Paragraph, Rule, RuleConfig, RuleKind, Severity, TargetSpec, Violation,
+};
 use crate::error::{CoreError, CoreResult};
 use regex::Regex;
 
@@ -41,7 +43,11 @@ impl CompiledChecker {
             .as_ref()
             .and_then(|t| t.text_regex.as_deref())
             .and_then(|pat| Regex::new(pat).ok());
-        Self { rule, checker, text_regex }
+        Self {
+            rule,
+            checker,
+            text_regex,
+        }
     }
 
     /// 构建期编译 target 正则；非法正则在加载期已校验，此处失败按“不命中”处理并保留原文兜底。
@@ -51,7 +57,11 @@ impl CompiledChecker {
             .as_ref()
             .and_then(|t| t.text_regex.as_deref())
             .and_then(|pat| Regex::new(pat).ok());
-        Self { rule, checker, text_regex }
+        Self {
+            rule,
+            checker,
+            text_regex,
+        }
     }
 
     pub fn compiled_text_regex(&self) -> Option<&Regex> {
@@ -70,7 +80,11 @@ impl CompiledChecker {
     pub fn check_document(&self, ctx: &crate::dsl::AuditContext<'_>) -> Vec<Violation> {
         self.checker.check_document(ctx)
     }
-    pub fn check_paragraph(&self, ctx: &crate::dsl::AuditContext<'_>, p: &Paragraph) -> Vec<Violation> {
+    pub fn check_paragraph(
+        &self,
+        ctx: &crate::dsl::AuditContext<'_>,
+        p: &Paragraph,
+    ) -> Vec<Violation> {
         self.checker.check_paragraph(ctx, p)
     }
 }
@@ -78,54 +92,96 @@ impl CompiledChecker {
 /// 编译单条规则为检查器；正则非法时返回中文可解释错误。
 pub fn build_checker(rule: &Rule, config: &RuleConfig) -> CoreResult<CompiledChecker> {
     let checker: Box<dyn crate::dsl::Checker> = match &rule.kind {
-        RuleKind::PageSize { expected } => Box::new(page::PageSizeChecker { expected: expected.clone() }),
-        RuleKind::PageMargins { expected_cm } => Box::new(page::PageMarginsChecker { expected: expected_cm.clone() }),
-        RuleKind::PageNumbering { expected } => Box::new(page::PageNumberingChecker { expected: expected.clone() }),
-        RuleKind::RunFontSize { expected_pt, allowed_pt, range_pt, apply_to } => Box::new(font::RunFontSizeChecker {
+        RuleKind::PageSize { expected } => Box::new(page::PageSizeChecker {
+            expected: expected.clone(),
+        }),
+        RuleKind::PageMargins { expected_cm } => Box::new(page::PageMarginsChecker {
+            expected: expected_cm.clone(),
+        }),
+        RuleKind::PageNumbering { expected } => Box::new(page::PageNumberingChecker {
+            expected: expected.clone(),
+        }),
+        RuleKind::RunFontSize {
+            expected_pt,
+            allowed_pt,
+            range_pt,
+            apply_to,
+        } => Box::new(font::RunFontSizeChecker {
             expected_pt: *expected_pt,
             allowed_pt: allowed_pt.clone(),
             range_pt: range_pt.clone(),
             apply_to: apply_to.clone(),
         }),
-        RuleKind::RunFontFamily { text_class, expected_fonts, blocked_fonts } => Box::new(font::RunFontFamilyChecker {
+        RuleKind::RunFontFamily {
+            text_class,
+            expected_fonts,
+            blocked_fonts,
+        } => Box::new(font::RunFontFamilyChecker {
             text_class: text_class.clone(),
             expected_fonts: expected_fonts.clone(),
             blocked_fonts: blocked_fonts.clone(),
         }),
-        RuleKind::FontAllowList { mode, allowed_fonts, blocked_fonts } => Box::new(font::FontAllowListChecker {
+        RuleKind::FontAllowList {
+            mode,
+            allowed_fonts,
+            blocked_fonts,
+        } => Box::new(font::FontAllowListChecker {
             mode: mode.clone(),
             allowed_fonts: allowed_fonts.clone(),
             blocked_fonts: blocked_fonts.clone(),
             policy_blocklist: config.font_policy.blocked_decorative_fonts.clone(),
             policy_allowlist: config.font_policy.allowed_fonts.clone(),
         }),
-        RuleKind::LineSpacing { allowed } => Box::new(paragraph::LineSpacingChecker { allowed: allowed.clone() }),
-        RuleKind::Indent { first_line_chars, hanging_chars, left_chars } => Box::new(paragraph::IndentChecker {
+        RuleKind::LineSpacing { allowed } => Box::new(paragraph::LineSpacingChecker {
+            allowed: allowed.clone(),
+        }),
+        RuleKind::Indent {
+            first_line_chars,
+            hanging_chars,
+            left_chars,
+        } => Box::new(paragraph::IndentChecker {
             first_line_chars: *first_line_chars,
             hanging_chars: *hanging_chars,
             left_chars: *left_chars,
         }),
-        RuleKind::Alignment { expected } => Box::new(paragraph::AlignmentChecker { expected: *expected }),
-        RuleKind::Bold { expected } => Box::new(paragraph::BoldChecker { expected: *expected }),
-        RuleKind::TextLength { min, max, count_mode } => Box::new(paragraph::TextLengthChecker {
+        RuleKind::Alignment { expected } => Box::new(paragraph::AlignmentChecker {
+            expected: *expected,
+        }),
+        RuleKind::Bold { expected } => Box::new(paragraph::BoldChecker {
+            expected: *expected,
+        }),
+        RuleKind::TextLength {
+            min,
+            max,
+            count_mode,
+        } => Box::new(paragraph::TextLengthChecker {
             min: *min,
             max: *max,
             count_mode: count_mode.clone(),
         }),
-        RuleKind::KeywordList { min_count, max_count, separators, allow_trailing_separator } => {
-            Box::new(paragraph::KeywordListChecker {
-                min_count: *min_count,
-                max_count: *max_count,
-                separators: separators.clone(),
-                allow_trailing: *allow_trailing_separator,
-            })
-        }
+        RuleKind::KeywordList {
+            min_count,
+            max_count,
+            separators,
+            allow_trailing_separator,
+        } => Box::new(paragraph::KeywordListChecker {
+            min_count: *min_count,
+            max_count: *max_count,
+            separators: separators.clone(),
+            allow_trailing: *allow_trailing_separator,
+        }),
         RuleKind::Punctuation { mode, exceptions } => Box::new(typography::PunctuationChecker {
             mode: mode.clone(),
             exception_regexes: compile_exception_patterns(&rule.id, exceptions)?,
         }),
-        RuleKind::CjkLatinSpacing { mode } => Box::new(typography::CjkLatinSpacingChecker { mode: mode.clone() }),
-        RuleKind::HeadingNumbering { allowed_schemes, require_consistent, check_level_match } => {
+        RuleKind::CjkLatinSpacing { mode } => {
+            Box::new(typography::CjkLatinSpacingChecker { mode: mode.clone() })
+        }
+        RuleKind::HeadingNumbering {
+            allowed_schemes,
+            require_consistent,
+            check_level_match,
+        } => {
             let (cn_res, arabic_res) = structure::heading_default_regexes();
             Box::new(structure::HeadingNumberingChecker {
                 allowed_schemes: allowed_schemes.clone(),
@@ -140,26 +196,37 @@ pub fn build_checker(rule: &Rule, config: &RuleConfig) -> CoreResult<CompiledChe
             strict: *strict,
             anchor_regexes: compile_anchor_regexes(&rule.id, anchors)?,
         }),
-        RuleKind::CitationOrder { require_ascending, allow_repeated } => {
-            Box::new(structure::CitationOrderChecker { require_ascending: *require_ascending, allow_repeated: *allow_repeated })
-        }
-        RuleKind::Caption { caption_kind, pattern, expected_alignment, expected_position, numbering } => {
-            Box::new(caption::CaptionChecker {
-                kind: caption_kind.clone(),
-                pattern: compile_regex(&rule.id, pattern)?,
-                expected_alignment: *expected_alignment,
-                expected_position: expected_position.clone(),
-                numbering: numbering.clone(),
-            })
-        }
-        RuleKind::ReferenceList { entry_pattern, required_type_tags, check_continuous, check_cited } => {
-            Box::new(reference::ReferenceListChecker {
-                entry_pattern: compile_regex(&rule.id, entry_pattern)?,
-                required_type_tags: required_type_tags.clone(),
-                check_continuous: *check_continuous,
-                check_cited: *check_cited,
-            })
-        }
+        RuleKind::CitationOrder {
+            require_ascending,
+            allow_repeated,
+        } => Box::new(structure::CitationOrderChecker {
+            require_ascending: *require_ascending,
+            allow_repeated: *allow_repeated,
+        }),
+        RuleKind::Caption {
+            caption_kind,
+            pattern,
+            expected_alignment,
+            expected_position,
+            numbering,
+        } => Box::new(caption::CaptionChecker {
+            kind: caption_kind.clone(),
+            pattern: compile_regex(&rule.id, pattern)?,
+            expected_alignment: *expected_alignment,
+            expected_position: expected_position.clone(),
+            numbering: numbering.clone(),
+        }),
+        RuleKind::ReferenceList {
+            entry_pattern,
+            required_type_tags,
+            check_continuous,
+            check_cited,
+        } => Box::new(reference::ReferenceListChecker {
+            entry_pattern: compile_regex(&rule.id, entry_pattern)?,
+            required_type_tags: required_type_tags.clone(),
+            check_continuous: *check_continuous,
+            check_cited: *check_cited,
+        }),
     };
     Ok(CompiledChecker::new(rule.clone(), checker))
 }
@@ -177,18 +244,30 @@ pub fn build_checkers(config: &RuleConfig) -> CoreResult<Vec<CompiledChecker>> {
 }
 
 fn compile_regex(rule_id: &str, pattern: &str) -> CoreResult<Regex> {
-    Regex::new(pattern).map_err(|e| CoreError::InvalidRegex { rule_id: rule_id.to_string(), source: e })
+    Regex::new(pattern).map_err(|e| CoreError::InvalidRegex {
+        rule_id: rule_id.to_string(),
+        source: e,
+    })
 }
 
 fn compile_exception_patterns(rule_id: &str, exceptions: &[String]) -> CoreResult<Vec<Regex>> {
-    exceptions.iter().map(|p| compile_regex(rule_id, p)).collect()
+    exceptions
+        .iter()
+        .map(|p| compile_regex(rule_id, p))
+        .collect()
 }
 
-fn compile_anchor_regexes(rule_id: &str, anchors: &[crate::dsl::SequenceAnchor]) -> CoreResult<Vec<Option<Regex>>> {
-    anchors.iter().map(|a| match &a.regex {
-        Some(p) => compile_regex(rule_id, p).map(Some),
-        None => Ok(None),
-    }).collect()
+fn compile_anchor_regexes(
+    rule_id: &str,
+    anchors: &[crate::dsl::SequenceAnchor],
+) -> CoreResult<Vec<Option<Regex>>> {
+    anchors
+        .iter()
+        .map(|a| match &a.regex {
+            Some(p) => compile_regex(rule_id, p).map(Some),
+            None => Ok(None),
+        })
+        .collect()
 }
 
 // ---------- 公共小工具（各 checker 复用） ----------
@@ -220,8 +299,23 @@ pub(crate) fn violation_for(
 }
 
 /// 降级提示（未能识别 → info + 建议人工检查）。
-pub(crate) fn manual_hint(rule: &Rule, doc_path: &std::path::Path, location: Location, message: String, excerpt: Option<String>) -> Violation {
-    let mut v = violation_for(rule, doc_path, location, message, None, Some("未能识别".into()), excerpt, 0.3);
+pub(crate) fn manual_hint(
+    rule: &Rule,
+    doc_path: &std::path::Path,
+    location: Location,
+    message: String,
+    excerpt: Option<String>,
+) -> Violation {
+    let mut v = violation_for(
+        rule,
+        doc_path,
+        location,
+        message,
+        None,
+        Some("未能识别".into()),
+        excerpt,
+        0.3,
+    );
     v.severity = Severity::Info;
     v.requires_manual_review = true;
     v
