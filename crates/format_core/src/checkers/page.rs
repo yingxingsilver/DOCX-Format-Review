@@ -4,7 +4,8 @@
 
 use crate::checkers::{fmt_num, violation_for, within};
 use crate::dsl::{
-    AuditContext, Checker, Location, Margins, PageSize, PageNumberingExpectation, Severity, Violation,
+    AuditContext, Checker, Location, Margins, PageNumberingExpectation, PageSize, Severity,
+    Violation,
 };
 
 pub struct PageSizeChecker {
@@ -33,7 +34,10 @@ impl Checker for PageSizeChecker {
                 out.push(crate::checkers::manual_hint(
                     ctx.rule,
                     &ctx.document.path,
-                    Location { section_index: Some(sec.index), ..Default::default() },
+                    Location {
+                        section_index: Some(sec.index),
+                        ..Default::default()
+                    },
                     format!("第 {} 节的页面尺寸未能识别，建议人工检查。", sec.index + 1),
                     None,
                 ));
@@ -61,9 +65,16 @@ impl Checker for PageSizeChecker {
             out.push(violation_for(
                 ctx.rule,
                 &ctx.document.path,
-                Location { section_index: Some(sec.index), ..Default::default() },
+                Location {
+                    section_index: Some(sec.index),
+                    ..Default::default()
+                },
                 message,
-                Some(format!("{} × {} mm", fmt_num(self.expected.width_mm), fmt_num(self.expected.height_mm))),
+                Some(format!(
+                    "{} × {} mm",
+                    fmt_num(self.expected.width_mm),
+                    fmt_num(self.expected.height_mm)
+                )),
                 Some(actual),
                 None,
                 0.95,
@@ -90,7 +101,11 @@ impl PageMarginsChecker {
     fn one_side(name: &str, actual: f64, want: f64) -> (String, String, String) {
         let label = Self::side_label(name);
         (
-            format!("页边距{label}应为 {} cm，当前约为 {} cm。", fmt_num(want), fmt_num(actual)),
+            format!(
+                "页边距{label}应为 {} cm，当前约为 {} cm。",
+                fmt_num(want),
+                fmt_num(actual)
+            ),
             format!("{} cm", fmt_num(want)),
             format!("约 {} cm", fmt_num(actual)),
         )
@@ -110,7 +125,10 @@ impl Checker for PageMarginsChecker {
                 out.push(crate::checkers::manual_hint(
                     ctx.rule,
                     &ctx.document.path,
-                    Location { section_index: Some(sec.index), ..Default::default() },
+                    Location {
+                        section_index: Some(sec.index),
+                        ..Default::default()
+                    },
                     format!("第 {} 节的页边距未能识别，建议人工检查。", sec.index + 1),
                     None,
                 ));
@@ -131,7 +149,10 @@ impl Checker for PageMarginsChecker {
                 out.push(violation_for(
                     ctx.rule,
                     &ctx.document.path,
-                    Location { section_index: Some(sec.index), ..Default::default() },
+                    Location {
+                        section_index: Some(sec.index),
+                        ..Default::default()
+                    },
                     msg,
                     Some(exp),
                     Some(act),
@@ -161,7 +182,12 @@ impl Checker for PageNumberingChecker {
             .document
             .paragraphs
             .iter()
-            .find(|p| matches!(p.role, crate::dsl::ParagraphRole::Body | crate::dsl::ParagraphRole::Heading { .. }))
+            .find(|p| {
+                matches!(
+                    p.role,
+                    crate::dsl::ParagraphRole::Body | crate::dsl::ParagraphRole::Heading { .. }
+                )
+            })
             .map(|p| p.section_index);
         let Some(sec_idx) = body_section else {
             out.push(crate::checkers::manual_hint(
@@ -177,7 +203,10 @@ impl Checker for PageNumberingChecker {
             out.push(crate::checkers::manual_hint(
                 ctx.rule,
                 &ctx.document.path,
-                Location { section_index: Some(sec_idx), ..Default::default() },
+                Location {
+                    section_index: Some(sec_idx),
+                    ..Default::default()
+                },
                 "正文所在节的页面设置未能识别，页码建议人工检查。".into(),
                 None,
             ));
@@ -188,19 +217,41 @@ impl Checker for PageNumberingChecker {
                 out.push(violation_for(
                     ctx.rule,
                     &ctx.document.path,
-                    Location { section_index: Some(sec_idx), ..Default::default() },
+                    Location {
+                        section_index: Some(sec_idx),
+                        ..Default::default()
+                    },
                     "正文建议从第 1 页重新开始编页码，当前未检测到重新编号的设置。".to_string(),
                     Some(format!("正文起始至第 {} 页重新编号", self.expected.start)),
-                    Some(if sec.restart_page_numbering == Some(false) { "未开启重新编号".into() } else { "未能识别".into() }),
+                    Some(if sec.restart_page_numbering == Some(false) {
+                        "未开启重新编号".into()
+                    } else {
+                        "未能识别".into()
+                    }),
                     None,
-                    if sec.restart_page_numbering.is_some() { 0.8 } else { 0.4 },
+                    if sec.restart_page_numbering.is_some() {
+                        0.8
+                    } else {
+                        0.4
+                    },
                 ));
-            } else if sec.page_number_start.map(|v| v != self.expected.start).unwrap_or(false) {
+            } else if sec
+                .page_number_start
+                .map(|v| v != self.expected.start)
+                .unwrap_or(false)
+            {
                 out.push(violation_for(
                     ctx.rule,
                     &ctx.document.path,
-                    Location { section_index: Some(sec_idx), ..Default::default() },
-                    format!("正文页码应从 {} 开始，当前从 {} 开始。", self.expected.start, sec.page_number_start.unwrap_or(0)),
+                    Location {
+                        section_index: Some(sec_idx),
+                        ..Default::default()
+                    },
+                    format!(
+                        "正文页码应从 {} 开始，当前从 {} 开始。",
+                        self.expected.start,
+                        sec.page_number_start.unwrap_or(0)
+                    ),
                     Some(format!("从 {} 开始", self.expected.start)),
                     Some(format!("从 {} 开始", sec.page_number_start.unwrap_or(0))),
                     None,
@@ -213,7 +264,10 @@ impl Checker for PageNumberingChecker {
             let mut v = violation_for(
                 ctx.rule,
                 &ctx.document.path,
-                Location { section_index: Some(sec_idx), ..Default::default() },
+                Location {
+                    section_index: Some(sec_idx),
+                    ..Default::default()
+                },
                 "页码位置（如居中或右下角）无法自动确认，请对照学校要求人工检查。".to_string(),
                 Some("页码居中或右下角".into()),
                 Some("需人工确认".into()),
@@ -231,8 +285,8 @@ impl Checker for PageNumberingChecker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rules::tests_helper::config_from_json;
     use crate::dsl::{ParsedDocument, SectionProperties};
+    use crate::rules::tests_helper::config_from_json;
     use std::path::PathBuf;
 
     fn doc_with_section(page_size: Option<PageSize>, margins: Option<Margins>) -> ParsedDocument {
@@ -263,14 +317,36 @@ mod tests {
 
     #[test]
     fn a4_passes_and_letter_fails() {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
         let rule = cfg.rules.iter().find(|r| r.id == "page-a4").unwrap();
         let c = crate::checkers::build_checker(rule, &cfg).unwrap();
-        let a4 = doc_with_section(Some(PageSize { width_mm: 210.0, height_mm: 297.0 }), None);
-        let ctx = AuditContext { document: &a4, config: &cfg, rule };
+        let a4 = doc_with_section(
+            Some(PageSize {
+                width_mm: 210.0,
+                height_mm: 297.0,
+            }),
+            None,
+        );
+        let ctx = AuditContext {
+            document: &a4,
+            config: &cfg,
+            rule,
+        };
         assert!(c.check_document(&ctx).is_empty());
-        let letter = doc_with_section(Some(PageSize { width_mm: 215.9, height_mm: 279.4 }), None);
-        let ctx = AuditContext { document: &letter, config: &cfg, rule };
+        let letter = doc_with_section(
+            Some(PageSize {
+                width_mm: 215.9,
+                height_mm: 279.4,
+            }),
+            None,
+        );
+        let ctx = AuditContext {
+            document: &letter,
+            config: &cfg,
+            rule,
+        };
         let vs = c.check_document(&ctx);
         assert_eq!(vs.len(), 1);
         assert_eq!(vs[0].severity, Severity::Error);
@@ -279,14 +355,46 @@ mod tests {
 
     #[test]
     fn margins_check_left_3cm() {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
         let rule = cfg.rules.iter().find(|r| r.id == "page-margins").unwrap();
         let c = crate::checkers::build_checker(rule, &cfg).unwrap();
-        let good = doc_with_section(None, Some(Margins { top_cm: 2.5, bottom_cm: 2.5, left_cm: 3.0, right_cm: 2.5, header_cm: None, footer_cm: None, gutter_cm: None }));
-        let ctx = AuditContext { document: &good, config: &cfg, rule };
+        let good = doc_with_section(
+            None,
+            Some(Margins {
+                top_cm: 2.5,
+                bottom_cm: 2.5,
+                left_cm: 3.0,
+                right_cm: 2.5,
+                header_cm: None,
+                footer_cm: None,
+                gutter_cm: None,
+            }),
+        );
+        let ctx = AuditContext {
+            document: &good,
+            config: &cfg,
+            rule,
+        };
         assert!(c.check_document(&ctx).is_empty());
-        let bad = doc_with_section(None, Some(Margins { top_cm: 2.5, bottom_cm: 2.5, left_cm: 2.5, right_cm: 2.5, header_cm: None, footer_cm: None, gutter_cm: None }));
-        let ctx = AuditContext { document: &bad, config: &cfg, rule };
+        let bad = doc_with_section(
+            None,
+            Some(Margins {
+                top_cm: 2.5,
+                bottom_cm: 2.5,
+                left_cm: 2.5,
+                right_cm: 2.5,
+                header_cm: None,
+                footer_cm: None,
+                gutter_cm: None,
+            }),
+        );
+        let ctx = AuditContext {
+            document: &bad,
+            config: &cfg,
+            rule,
+        };
         let vs = c.check_document(&ctx);
         assert_eq!(vs.len(), 1);
         assert!(vs[0].message.contains("左侧"));
@@ -296,11 +404,17 @@ mod tests {
 
     #[test]
     fn missing_page_size_degrades_to_info() {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
         let rule = cfg.rules.iter().find(|r| r.id == "page-a4").unwrap();
         let c = crate::checkers::build_checker(rule, &cfg).unwrap();
         let doc = doc_with_section(None, None);
-        let ctx = AuditContext { document: &doc, config: &cfg, rule };
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule,
+        };
         let vs = c.check_document(&ctx);
         assert_eq!(vs.len(), 1);
         assert_eq!(vs[0].severity, Severity::Info);

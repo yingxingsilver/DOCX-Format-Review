@@ -95,20 +95,40 @@ impl CoreError {
     /// 面向普通用户的中文提示。禁止出现 XML 节点名 / stack trace / 内部实现词。
     pub fn user_message(&self) -> String {
         match self {
-            CoreError::Io { .. } => "文件读取失败，请确认文件没有被其他程序占用，且未被加密。".to_string(),
-            CoreError::Zip { .. } => "无法读取该 Word 文档，文件可能已损坏或不是有效的 .docx 文档。".to_string(),
-            CoreError::Xml { .. } => "文档内部内容损坏，Word 可能提示需要修复；建议另存为新文件后重试。".to_string(),
-            CoreError::MissingPart { .. } => "文件缺少必要的文档内容，可能不是有效的 Word 论文文档。".to_string(),
-            CoreError::RuleSyntax { .. } => "规则配置文件格式有误，请检查其中的标点或拼写。".to_string(),
+            CoreError::Io { .. } => {
+                "文件读取失败，请确认文件没有被其他程序占用，且未被加密。".to_string()
+            }
+            CoreError::Zip { .. } => {
+                "无法读取该 Word 文档，文件可能已损坏或不是有效的 .docx 文档。".to_string()
+            }
+            CoreError::Xml { .. } => {
+                "文档内部内容损坏，Word 可能提示需要修复；建议另存为新文件后重试。".to_string()
+            }
+            CoreError::MissingPart { .. } => {
+                "文件缺少必要的文档内容，可能不是有效的 Word 论文文档。".to_string()
+            }
+            CoreError::RuleSyntax { .. } => {
+                "规则配置文件格式有误，请检查其中的标点或拼写。".to_string()
+            }
             CoreError::RuleInvalid { reason } => format!("规则配置不合法：{reason}"),
             CoreError::InvalidRegex { rule_id, .. } => {
-                format!("规则文件中的正则表达式无效（规则编号 {rule_id}），请联系规则维护人员修正。")
+                format!(
+                    "规则文件中的正则表达式无效（规则编号 {rule_id}），请联系规则维护人员修正。"
+                )
             }
-            CoreError::StyleCycle { .. } => "文档样式之间存在相互引用，部分格式未能自动判断，建议人工检查。".to_string(),
-            CoreError::UnknownStyle { .. } => "文档中引用了不存在的样式，部分格式未能自动判断，建议人工检查。".to_string(),
-            CoreError::OutOfRange { .. } => "文档中存在异常的尺寸数值，相关项目已降级为人工检查。".to_string(),
+            CoreError::StyleCycle { .. } => {
+                "文档样式之间存在相互引用，部分格式未能自动判断，建议人工检查。".to_string()
+            }
+            CoreError::UnknownStyle { .. } => {
+                "文档中引用了不存在的样式，部分格式未能自动判断，建议人工检查。".to_string()
+            }
+            CoreError::OutOfRange { .. } => {
+                "文档中存在异常的尺寸数值，相关项目已降级为人工检查。".to_string()
+            }
             CoreError::InvalidPath { .. } => "所选文件或文件夹不存在，请重新选择。".to_string(),
-            CoreError::UnknownProfile { profile } => format!("没有找到名为“{profile}”的审核力度预设。"),
+            CoreError::UnknownProfile { profile } => {
+                format!("没有找到名为“{profile}”的审核力度预设。")
+            }
         }
     }
 
@@ -143,8 +163,15 @@ mod tests {
 
     #[test]
     fn invalid_regex_message_names_rule_id() {
-        let re = regex::Regex::new("(").unwrap_err();
-        let e = CoreError::InvalidRegex { rule_id: "figure-caption".into(), source: re };
+        // 用非字面量构造非法正则，避免 clippy 在编译期直接拒绝该模式。
+        let bad_pattern = String::from("((");
+        let re = regex::Regex::new(&bad_pattern)
+            .err()
+            .expect("非法正则应返回错误");
+        let e = CoreError::InvalidRegex {
+            rule_id: "figure-caption".into(),
+            source: re,
+        };
         assert!(e.user_message().contains("figure-caption"));
         assert!(e.user_message().contains("正则表达式无效"));
     }

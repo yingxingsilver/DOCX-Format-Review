@@ -33,7 +33,11 @@ fn number_re() -> &'static Regex {
 /// 从题注文本提取编号序列（如 “1-1” → [1,1]，“3” → [3]）。
 fn extract_numbers(text: &str) -> Vec<u32> {
     match number_re().find(text) {
-        Some(m) => m.as_str().split('-').filter_map(|s| s.parse::<u32>().ok()).collect(),
+        Some(m) => m
+            .as_str()
+            .split('-')
+            .filter_map(|s| s.parse::<u32>().ok())
+            .collect(),
         None => Vec::new(),
     }
 }
@@ -51,8 +55,12 @@ impl Checker for CaptionChecker {
         };
 
         // 1) 解析器给出的高置信题注
-        let parser_items: Vec<&CaptionInfo> =
-            ctx.document.captions.iter().filter(|c| matches_kind(&c.kind, &self.kind)).collect();
+        let parser_items: Vec<&CaptionInfo> = ctx
+            .document
+            .captions
+            .iter()
+            .filter(|c| matches_kind(&c.kind, &self.kind))
+            .collect();
         // 2) 兜底：角色匹配 **或** pattern 命中（仅当解析器没有给出该类题注时）。
         //    两者取“或”是因为：解析器可能只标了角色未给 CaptionInfo，也可能样式不规范但文本以“图N”开头。
         //    兜底识别置信度低，产出的违规一律降级 info/manual_review。
@@ -84,11 +92,18 @@ impl Checker for CaptionChecker {
                 .iter()
                 .map(|c| {
                     let p = ctx.document.paragraphs.get(c.paragraph_index);
-                    (c.paragraph_index, p.map(|x| x.text.clone()).unwrap_or_default(), p)
+                    (
+                        c.paragraph_index,
+                        p.map(|x| x.text.clone()).unwrap_or_default(),
+                        p,
+                    )
                 })
                 .collect()
         } else {
-            fallback_paras.iter().map(|p| (p.global_index, p.text.clone(), Some(*p))).collect()
+            fallback_paras
+                .iter()
+                .map(|p| (p.global_index, p.text.clone(), Some(*p)))
+                .collect()
         };
 
         // ---- 对齐检查 ----
@@ -131,11 +146,16 @@ impl Checker for CaptionChecker {
         if let Some(want_pos) = &self.expected_position {
             if !parser_items.is_empty() {
                 for c in &parser_items {
-                    if c.position == CaptionPosition::Unknown || c.nearby_object_block_index.is_none() {
+                    if c.position == CaptionPosition::Unknown
+                        || c.nearby_object_block_index.is_none()
+                    {
                         let mut v = violation_for(
                             ctx.rule,
                             &ctx.document.path,
-                            Location { paragraph_index: Some(c.paragraph_index), ..Default::default() },
+                            Location {
+                                paragraph_index: Some(c.paragraph_index),
+                                ..Default::default()
+                            },
                             format!(
                                 "无法自动确认{}与{}的相对位置，请人工检查。",
                                 kind_name_cn(&self.kind),
@@ -153,7 +173,10 @@ impl Checker for CaptionChecker {
                         let mut v = violation_for(
                             ctx.rule,
                             &ctx.document.path,
-                            Location { paragraph_index: Some(c.paragraph_index), ..Default::default() },
+                            Location {
+                                paragraph_index: Some(c.paragraph_index),
+                                ..Default::default()
+                            },
                             format!(
                                 "{}应{}，当前位置不符。",
                                 kind_name_cn(&self.kind),
@@ -207,7 +230,10 @@ impl Checker for CaptionChecker {
                     let mut v = violation_for(
                         ctx.rule,
                         &ctx.document.path,
-                        Location { paragraph_index: Some(first.0), ..Default::default() },
+                        Location {
+                            paragraph_index: Some(first.0),
+                            ..Default::default()
+                        },
                         format!(
                             "{}编号建议从 {expect_start} 开始，当前从 {actual_start} 开始。",
                             kind_name_cn(&self.kind)
@@ -281,7 +307,10 @@ fn number_follows(prev: &[u32], cur: &[u32], rule: &CaptionNumberingRule) -> boo
 }
 
 fn join_num(nums: &[u32]) -> String {
-    nums.iter().map(|n| n.to_string()).collect::<Vec<_>>().join("-")
+    nums.iter()
+        .map(|n| n.to_string())
+        .collect::<Vec<_>>()
+        .join("-")
 }
 
 fn kind_name_cn(k: &CaptionKind) -> &'static str {
@@ -313,7 +342,10 @@ mod tests {
     use crate::dsl::{EffectiveParagraphFormat, ParsedDocument};
     use crate::rules::tests_helper::config_from_json;
 
-    fn caption_doc(items: Vec<(&str, ParagraphRole, Option<crate::dsl::Alignment>)>, captions: Vec<CaptionInfo>) -> ParsedDocument {
+    fn caption_doc(
+        items: Vec<(&str, ParagraphRole, Option<crate::dsl::Alignment>)>,
+        captions: Vec<CaptionInfo>,
+    ) -> ParsedDocument {
         let mut d = empty_doc();
         d.paragraphs = items
             .into_iter()
@@ -322,7 +354,10 @@ mod tests {
                 let mut p = para(vec![run_with(t, 0, Some(10.5), None, None)], r);
                 p.global_index = i;
                 p.block_index = i;
-                p.effective = align.map(|a| EffectiveParagraphFormat { alignment: Some(a), ..Default::default() });
+                p.effective = align.map(|a| EffectiveParagraphFormat {
+                    alignment: Some(a),
+                    ..Default::default()
+                });
                 p
             })
             .collect();
@@ -332,62 +367,124 @@ mod tests {
 
     #[test]
     fn figure_caption_centered_passes_left_warns() {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
         let rule = cfg.rules.iter().find(|r| r.id == "figure-caption").unwrap();
         let c = crate::checkers::build_checker(rule, &cfg).unwrap();
         let doc = caption_doc(
-            vec![("图1 系统架构图", ParagraphRole::FigureCaption, Some(crate::dsl::Alignment::Center))],
+            vec![(
+                "图1 系统架构图",
+                ParagraphRole::FigureCaption,
+                Some(crate::dsl::Alignment::Center),
+            )],
             vec![],
         );
-        let ctx = AuditContext { document: &doc, config: &cfg, rule };
-        assert!(c.check_document(&ctx).iter().filter(|v| v.message.contains("居中")).count() == 0);
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule,
+        };
+        assert!(
+            c.check_document(&ctx)
+                .iter()
+                .filter(|v| v.message.contains("居中"))
+                .count()
+                == 0
+        );
         let doc2 = caption_doc(
-            vec![("图1 系统架构图", ParagraphRole::FigureCaption, Some(crate::dsl::Alignment::Left))],
+            vec![(
+                "图1 系统架构图",
+                ParagraphRole::FigureCaption,
+                Some(crate::dsl::Alignment::Left),
+            )],
             vec![],
         );
-        let ctx2 = AuditContext { document: &doc2, config: &cfg, rule };
+        let ctx2 = AuditContext {
+            document: &doc2,
+            config: &cfg,
+            rule,
+        };
         let vs = c.check_document(&ctx2);
-        assert!(vs.iter().any(|v| v.message.contains("居中") && v.severity == Severity::Warning));
+        assert!(vs
+            .iter()
+            .any(|v| v.message.contains("居中") && v.severity == Severity::Warning));
     }
 
     #[test]
     fn figure_number_gap_warns() {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
         let rule = cfg.rules.iter().find(|r| r.id == "figure-caption").unwrap();
         let c = crate::checkers::build_checker(rule, &cfg).unwrap();
         let doc = caption_doc(
             vec![
-                ("图1 架构图", ParagraphRole::FigureCaption, Some(crate::dsl::Alignment::Center)),
+                (
+                    "图1 架构图",
+                    ParagraphRole::FigureCaption,
+                    Some(crate::dsl::Alignment::Center),
+                ),
                 ("正文段落。", ParagraphRole::Body, None),
-                ("图3 流程图", ParagraphRole::FigureCaption, Some(crate::dsl::Alignment::Center)),
+                (
+                    "图3 流程图",
+                    ParagraphRole::FigureCaption,
+                    Some(crate::dsl::Alignment::Center),
+                ),
             ],
             vec![],
         );
-        let ctx = AuditContext { document: &doc, config: &cfg, rule };
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule,
+        };
         let vs = c.check_document(&ctx);
-        assert!(vs.iter().any(|v| v.message.contains("跳号") && v.severity == Severity::Warning && v.requires_manual_review));
+        assert!(vs.iter().any(|v| v.message.contains("跳号")
+            && v.severity == Severity::Warning
+            && v.requires_manual_review));
     }
 
     #[test]
     fn chapter_prefixed_numbers_are_allowed() {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
         let rule = cfg.rules.iter().find(|r| r.id == "table-caption").unwrap(); // allow_chapter_prefix=true
         let c = crate::checkers::build_checker(rule, &cfg).unwrap();
         let doc = caption_doc(
             vec![
-                ("表1-1 样本统计", ParagraphRole::TableCaption, Some(crate::dsl::Alignment::Center)),
-                ("表1-2 回归结果", ParagraphRole::TableCaption, Some(crate::dsl::Alignment::Center)),
+                (
+                    "表1-1 样本统计",
+                    ParagraphRole::TableCaption,
+                    Some(crate::dsl::Alignment::Center),
+                ),
+                (
+                    "表1-2 回归结果",
+                    ParagraphRole::TableCaption,
+                    Some(crate::dsl::Alignment::Center),
+                ),
             ],
             vec![],
         );
-        let ctx = AuditContext { document: &doc, config: &cfg, rule };
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule,
+        };
         let vs = c.check_document(&ctx);
-        assert!(!vs.iter().any(|v| v.message.contains("跳号")), "{:?}", vs.iter().map(|v| &v.message).collect::<Vec<_>>());
+        assert!(
+            !vs.iter().any(|v| v.message.contains("跳号")),
+            "{:?}",
+            vs.iter().map(|v| &v.message).collect::<Vec<_>>()
+        );
     }
 
     #[test]
     fn unknown_position_degrades_to_manual_review_info() {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
         let rule = cfg.rules.iter().find(|r| r.id == "figure-caption").unwrap();
         let c = crate::checkers::build_checker(rule, &cfg).unwrap();
         let cap = CaptionInfo {
@@ -400,8 +497,19 @@ mod tests {
             position: CaptionPosition::Unknown,
             confidence: 0.9,
         };
-        let doc = caption_doc(vec![("图1 架构图", ParagraphRole::FigureCaption, Some(crate::dsl::Alignment::Center))], vec![cap]);
-        let ctx = AuditContext { document: &doc, config: &cfg, rule };
+        let doc = caption_doc(
+            vec![(
+                "图1 架构图",
+                ParagraphRole::FigureCaption,
+                Some(crate::dsl::Alignment::Center),
+            )],
+            vec![cap],
+        );
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule,
+        };
         let vs = c.check_document(&ctx);
         assert!(vs.iter().all(|v| v.severity != Severity::Error));
         assert!(vs.iter().any(|v| v.requires_manual_review));

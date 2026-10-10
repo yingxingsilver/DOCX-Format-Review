@@ -193,7 +193,25 @@ pub fn is_cjk_ideograph(c: char) -> bool {
 pub fn is_cjk_punct(c: char) -> bool {
     ('\u{3000}'..='\u{303F}').contains(&c)
         || ('\u{FF00}'..='\u{FFEF}').contains(&c)
-        || matches!(c, '，' | '。' | '；' | '：' | '？' | '！' | '、' | '（' | '）' | '《' | '》' | '“' | '”' | '‘' | '’' | '—' | '…')
+        || matches!(
+            c,
+            '，' | '。'
+                | '；'
+                | '：'
+                | '？'
+                | '！'
+                | '、'
+                | '（'
+                | '）'
+                | '《'
+                | '》'
+                | '“'
+                | '”'
+                | '‘'
+                | '’'
+                | '—'
+                | '…'
+        )
 }
 
 /// 按字符类别统计一段文本。
@@ -649,12 +667,24 @@ impl Default for Tolerance {
     }
 }
 
-fn default_font_size_tolerance() -> f64 { 0.5 }
-fn default_line_spacing_pt_tolerance() -> f64 { 0.2 }
-fn default_line_spacing_multiple_tolerance() -> f64 { 0.05 }
-fn default_margin_cm_tolerance() -> f64 { 0.1 }
-fn default_indent_char_tolerance() -> f64 { 0.2 }
-fn default_page_mm_tolerance() -> f64 { 1.0 }
+fn default_font_size_tolerance() -> f64 {
+    0.5
+}
+fn default_line_spacing_pt_tolerance() -> f64 {
+    0.2
+}
+fn default_line_spacing_multiple_tolerance() -> f64 {
+    0.05
+}
+fn default_margin_cm_tolerance() -> f64 {
+    0.1
+}
+fn default_indent_char_tolerance() -> f64 {
+    0.2
+}
+fn default_page_mm_tolerance() -> f64 {
+    1.0
+}
 
 /// 带容差的浮点比较（NaN 一律 false）。
 pub fn within(value: f64, target: f64, tol: f64) -> bool {
@@ -716,8 +746,12 @@ pub struct PageNumberingExpectation {
     pub allowed_positions: Vec<String>,
 }
 
-fn default_one() -> u32 { 1 }
-fn default_true() -> bool { true }
+fn default_one() -> u32 {
+    1
+}
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1180,14 +1214,20 @@ mod tests {
         assert!((Indent::Points { value: 24.0 }.approx_chars(12.0).unwrap() - 2.0).abs() < 1e-9);
         // 480 twip = 24 pt ≈ 2 字符
         assert!((Indent::Twips { value: 480.0 }.approx_chars(12.0).unwrap() - 2.0).abs() < 1e-9);
-        assert_eq!(Indent::Characters { value: 2.0 }.approx_chars(12.0), Some(2.0));
+        assert_eq!(
+            Indent::Characters { value: 2.0 }.approx_chars(12.0),
+            Some(2.0)
+        );
         assert_eq!(Indent::Points { value: 24.0 }.approx_chars(0.0), None);
     }
 
     #[test]
     fn role_roundtrip_kind_str() {
         assert_eq!(ParagraphRole::Heading { level: 2 }.kind_str(), "heading");
-        assert_eq!(ParagraphRole::from_kind_str("figure_caption"), Some(ParagraphRole::FigureCaption));
+        assert_eq!(
+            ParagraphRole::from_kind_str("figure_caption"),
+            Some(ParagraphRole::FigureCaption)
+        );
         assert_eq!(ParagraphRole::from_kind_str("no_such_role"), None);
     }
 
@@ -1200,10 +1240,20 @@ mod tests {
 
     #[test]
     fn document_level_rules_are_classified() {
-        assert!(RuleKind::PageSize { expected: PageSize { width_mm: 210.0, height_mm: 297.0 } }.is_document_level());
+        assert!(RuleKind::PageSize {
+            expected: PageSize {
+                width_mm: 210.0,
+                height_mm: 297.0
+            }
+        }
+        .is_document_level());
         assert!(!RuleKind::RunFontSize {
-            expected_pt: Some(12.0), allowed_pt: None, range_pt: None, apply_to: RunApply::NonEmptyRuns
-        }.is_document_level());
+            expected_pt: Some(12.0),
+            allowed_pt: None,
+            range_pt: None,
+            apply_to: RunApply::NonEmptyRuns
+        }
+        .is_document_level());
     }
 
     #[test]

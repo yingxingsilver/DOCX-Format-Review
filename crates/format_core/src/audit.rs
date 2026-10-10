@@ -106,7 +106,11 @@ pub fn target_matches(target: Option<&TargetSpec>, p: &Paragraph) -> bool {
 
 /// 对带 text_regex 的目标做正则匹配（正则非法视为不命中；构建期已编译一次）。
 pub fn matches_text_regex(t: &TargetSpec, p: &Paragraph) -> bool {
-    match t.text_regex.as_deref().and_then(|pat| regex::Regex::new(pat).ok()) {
+    match t
+        .text_regex
+        .as_deref()
+        .and_then(|pat| regex::Regex::new(pat).ok())
+    {
         Some(re) => re.is_match(&p.text),
         None => true,
     }
@@ -116,7 +120,8 @@ pub fn matches_text_regex(t: &TargetSpec, p: &Paragraph) -> bool {
 /// 热路径使用 CompiledChecker 内缓存的正则，避免逐段重编译（性能/DoS 修复项）。
 fn checker_selects(c: &CompiledChecker, p: &Paragraph) -> bool {
     target_matches(c.target(), p)
-        && c.compiled_text_regex().map_or(true, |re| re.is_match(&p.text))
+        && c.compiled_text_regex()
+            .map_or(true, |re| re.is_match(&p.text))
 }
 
 // =========================
@@ -139,7 +144,11 @@ fn run_checkers(
 ) -> Vec<Violation> {
     let mut out: Vec<Violation> = Vec::new();
     for c in checkers {
-        let ctx = AuditContext { document: doc, config, rule: &c.rule };
+        let ctx = AuditContext {
+            document: doc,
+            config,
+            rule: &c.rule,
+        };
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             if c.is_document_level() {
                 c.check_document(&ctx)
@@ -234,7 +243,11 @@ pub fn friendly_read_error(err: &CoreError) -> String {
 fn read_failed(path: &Path, message: String) -> FileAuditSummary {
     FileAuditSummary {
         file_path: path.to_path_buf(),
-        file_name: path.file_name().unwrap_or_default().to_string_lossy().to_string(),
+        file_name: path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string(),
         status: FileStatus::ReadFailed,
         error_count: 0,
         warning_count: 0,
@@ -260,7 +273,10 @@ fn audit_file_with(
     checkers: &Arc<Vec<CompiledChecker>>,
 ) -> FileAuditSummary {
     if checkers.is_empty() {
-        return read_failed(path, "规则配置中没有可用的检查项，请先检查规则文件。".into());
+        return read_failed(
+            path,
+            "规则配置中没有可用的检查项，请先检查规则文件。".into(),
+        );
     }
     let parsed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         crate::docx_parser::parse_docx(path)
@@ -280,9 +296,18 @@ fn summarize(
     violations: Vec<Violation>,
     parse_error: Option<String>,
 ) -> FileAuditSummary {
-    let error_count = violations.iter().filter(|v| v.severity == Severity::Error).count();
-    let warning_count = violations.iter().filter(|v| v.severity == Severity::Warning).count();
-    let info_count = violations.iter().filter(|v| v.severity == Severity::Info).count();
+    let error_count = violations
+        .iter()
+        .filter(|v| v.severity == Severity::Error)
+        .count();
+    let warning_count = violations
+        .iter()
+        .filter(|v| v.severity == Severity::Warning)
+        .count();
+    let info_count = violations
+        .iter()
+        .filter(|v| v.severity == Severity::Info)
+        .count();
     // “需要修改”只由确定的问题驱动：人工复核类（manual_review）提示不判负，
     // 避免信息不全的最小文档被误标为不合格。
     let confirmed = violations
@@ -385,7 +410,11 @@ pub fn audit_directory(
             if token.is_cancelled() {
                 return FileAuditSummary {
                     file_path: f.clone(),
-                    file_name: f.file_name().unwrap_or_default().to_string_lossy().to_string(),
+                    file_name: f
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string(),
                     status: FileStatus::Skipped,
                     error_count: 0,
                     warning_count: 0,
@@ -409,19 +438,35 @@ pub fn audit_directory(
         .collect();
 
     let mut summaries = summaries;
-    summaries.sort_by(|a, b| a.file_name.cmp(&b.file_name).then_with(|| a.file_path.cmp(&b.file_path)));
+    summaries.sort_by(|a, b| {
+        a.file_name
+            .cmp(&b.file_name)
+            .then_with(|| a.file_path.cmp(&b.file_path))
+    });
 
     let passed_files = summaries
         .iter()
         .filter(|s| s.status == FileStatus::Passed || s.status == FileStatus::NeedsRevision)
         .count();
-    let read_failed_files = summaries.iter().filter(|s| s.status == FileStatus::ReadFailed).count();
-    let skipped_files = summaries.iter().filter(|s| s.status == FileStatus::Skipped).count();
-    let failed_files = summaries.iter().filter(|s| s.status == FileStatus::NeedsRevision).count();
+    let read_failed_files = summaries
+        .iter()
+        .filter(|s| s.status == FileStatus::ReadFailed)
+        .count();
+    let skipped_files = summaries
+        .iter()
+        .filter(|s| s.status == FileStatus::Skipped)
+        .count();
+    let failed_files = summaries
+        .iter()
+        .filter(|s| s.status == FileStatus::NeedsRevision)
+        .count();
     let total_errors = summaries.iter().map(|s| s.error_count).sum();
     let total_warnings = summaries.iter().map(|s| s.warning_count).sum();
     let total_infos = summaries.iter().map(|s| s.info_count).sum();
-    let mut all_violations: Vec<Violation> = summaries.iter().flat_map(|s| s.violations.clone()).collect();
+    let mut all_violations: Vec<Violation> = summaries
+        .iter()
+        .flat_map(|s| s.violations.clone())
+        .collect();
     sort_violations(&mut all_violations);
 
     if token.is_cancelled() {
@@ -451,7 +496,10 @@ pub fn audit_directory(
 }
 
 /// 旧签名兼容入口（无进度/不可取消）：内部委托新版并丢弃回调。
-pub fn audit_directory_summaries(dir: &Path, config: &RuleConfig) -> CoreResult<Vec<FileAuditSummary>> {
+pub fn audit_directory_summaries(
+    dir: &Path,
+    config: &RuleConfig,
+) -> CoreResult<Vec<FileAuditSummary>> {
     let report = audit_directory(dir, config, (), &CancellationToken::new())?;
     Ok(report.files)
 }
@@ -492,13 +540,18 @@ mod tests {
     use std::sync::Mutex;
 
     fn shipped_cfg() -> RuleConfig {
-        config_from_json(include_str!("../../../resources/rules/education_generic.json"))
+        config_from_json(include_str!(
+            "../../../resources/rules/education_generic.json"
+        ))
     }
 
     fn body_doc(size: Option<f64>) -> ParsedDocument {
         let mut doc = empty_doc();
         let mut r = run_with("教育公平研究的重要性体现在多个层面。", 0, size, None, None);
-        r.effective = Some(EffectiveRunFormat { font_size_pt: size, ..Default::default() });
+        r.effective = Some(EffectiveRunFormat {
+            font_size_pt: size,
+            ..Default::default()
+        });
         doc.paragraphs = vec![para(vec![r], ParagraphRole::Body)];
         doc
     }
@@ -533,7 +586,10 @@ mod tests {
             rule_id: "x".into(),
             severity: sev,
             file_path: "/t.docx".into(),
-            location: Location { paragraph_index: Some(1), ..Default::default() },
+            location: Location {
+                paragraph_index: Some(1),
+                ..Default::default()
+            },
             message: "m".into(),
             expected: None,
             actual: None,
@@ -548,7 +604,11 @@ mod tests {
             mk(Severity::Info),
         ]);
         assert_eq!(out.len(), 1);
-        assert_eq!(out[0].severity, Severity::Error, "同段同规则应保留最严重一条");
+        assert_eq!(
+            out[0].severity,
+            Severity::Error,
+            "同段同规则应保留最严重一条"
+        );
     }
 
     #[test]
@@ -558,7 +618,11 @@ mod tests {
             rule_id: "page-a4".into(),
             severity: Severity::Error,
             file_path: "/t.docx".into(),
-            location: Location { paragraph_index: None, page_hint: Some(i), ..Default::default() },
+            location: Location {
+                paragraph_index: None,
+                page_hint: Some(i),
+                ..Default::default()
+            },
             message: "页面尺寸不符".into(),
             expected: None,
             actual: None,
@@ -588,7 +652,10 @@ mod tests {
         assert!(target_matches(Some(&t(&["heading"], Some(1))), &p));
         assert!(!target_matches(Some(&t(&["heading"], Some(2))), &p));
         assert!(!target_matches(Some(&t(&["body"], None)), &p));
-        assert!(target_matches(Some(&t(&[], None)), &p), "空 roles 匹配所有段落");
+        assert!(
+            target_matches(Some(&t(&[], None)), &p),
+            "空 roles 匹配所有段落"
+        );
         let mut excl = t(&[], None);
         excl.exclude_roles = vec!["heading".into()];
         assert!(!target_matches(Some(&excl), &p));
@@ -637,7 +704,10 @@ mod tests {
         let msg = summary.parse_error.clone().unwrap_or_default();
         assert!(!msg.is_empty(), "读取失败必须有中文说明");
         for banned in ["xml", "w:", "panic", "unwrap", "zip", "os error", "stack"] {
-            assert!(!msg.to_ascii_lowercase().contains(banned), "外露术语: {msg}");
+            assert!(
+                !msg.to_ascii_lowercase().contains(banned),
+                "外露术语: {msg}"
+            );
         }
     }
 
@@ -686,10 +756,16 @@ mod tests {
     }
     impl AuditProgress for Recorder {
         fn on_file_started(&self, file: &Path) {
-            self.started.lock().unwrap().push(file.display().to_string());
+            self.started
+                .lock()
+                .unwrap()
+                .push(file.display().to_string());
         }
         fn on_file_finished(&self, file: &Path, violation_count: usize) {
-            self.finished.lock().unwrap().push((file.display().to_string(), violation_count));
+            self.finished
+                .lock()
+                .unwrap()
+                .push((file.display().to_string(), violation_count));
         }
         fn on_log(&self, message: String) {
             self.logs.lock().unwrap().push(message);
@@ -707,26 +783,48 @@ mod tests {
         let rec = Arc::new(Recorder::default());
         struct Proxy(Arc<Recorder>);
         impl AuditProgress for Proxy {
-            fn on_file_started(&self, f: &Path) { self.0.on_file_started(f) }
-            fn on_file_finished(&self, f: &Path, n: usize) { self.0.on_file_finished(f, n) }
-            fn on_log(&self, m: String) { self.0.on_log(m) }
+            fn on_file_started(&self, f: &Path) {
+                self.0.on_file_started(f)
+            }
+            fn on_file_finished(&self, f: &Path, n: usize) {
+                self.0.on_file_finished(f, n)
+            }
+            fn on_log(&self, m: String) {
+                self.0.on_log(m)
+            }
         }
-        let report = audit_directory(&dir, &cfg, Proxy(rec.clone()), &CancellationToken::new()).unwrap();
+        let report =
+            audit_directory(&dir, &cfg, Proxy(rec.clone()), &CancellationToken::new()).unwrap();
 
         assert_eq!(report.total_files, 3);
         assert_eq!(report.read_failed_files, 1, "损坏文件必须记为读取失败");
-        let broken = report.files.iter().find(|f| f.status == FileStatus::ReadFailed).unwrap();
+        let broken = report
+            .files
+            .iter()
+            .find(|f| f.status == FileStatus::ReadFailed)
+            .unwrap();
         assert_eq!(broken.file_name, "丙.docx");
         let msg = broken.parse_error.clone().unwrap_or_default();
         assert!(msg.contains("损坏") || msg.contains("密码"), "{msg}");
         for banned in ["xml", "zip", "panic", "unwrap", "stack", "w:"] {
-            assert!(!msg.to_ascii_lowercase().contains(banned), "外露术语: {msg}");
+            assert!(
+                !msg.to_ascii_lowercase().contains(banned),
+                "外露术语: {msg}"
+            );
         }
         // 其他文件照常审核：乙有字号违规，甲通过。
-        let yi = report.files.iter().find(|f| f.file_name == "乙.docx").unwrap();
+        let yi = report
+            .files
+            .iter()
+            .find(|f| f.file_name == "乙.docx")
+            .unwrap();
         assert_eq!(yi.status, FileStatus::NeedsRevision);
         assert!(yi.violations.iter().any(|v| v.rule_id == "body-font-size"));
-        let jia = report.files.iter().find(|f| f.file_name == "甲.docx").unwrap();
+        let jia = report
+            .files
+            .iter()
+            .find(|f| f.file_name == "甲.docx")
+            .unwrap();
         assert_eq!(jia.status, FileStatus::Passed);
         // 结果按文件名排序稳定。
         let names: Vec<&str> = report.files.iter().map(|f| f.file_name.as_str()).collect();
@@ -736,7 +834,12 @@ mod tests {
         // 进度回调：3 个文件全部 started + finished。
         assert_eq!(rec.started.lock().unwrap().len(), 3);
         assert_eq!(rec.finished.lock().unwrap().len(), 3);
-        assert!(rec.logs.lock().unwrap().iter().any(|l| l.contains("检查完成")));
+        assert!(rec
+            .logs
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|l| l.contains("检查完成")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -752,7 +855,11 @@ mod tests {
         token.cancel(); // 开始前就取消：不启动任何文件
         let report = audit_directory(&dir, &cfg, (), &token).unwrap();
         assert_eq!(report.total_files, 8);
-        let skipped = report.files.iter().filter(|f| f.status == FileStatus::Skipped).count();
+        let skipped = report
+            .files
+            .iter()
+            .filter(|f| f.status == FileStatus::Skipped)
+            .count();
         assert_eq!(skipped, 8, "取消后所有文件应标记为未检查");
         assert!(report.files.iter().all(|f| f.violations.is_empty()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -766,7 +873,9 @@ mod tests {
         token.cancel();
         assert!(token.is_cancelled());
         let t2 = token.clone();
-        std::thread::spawn(move || t2.is_cancelled()).join().unwrap();
+        std::thread::spawn(move || t2.is_cancelled())
+            .join()
+            .unwrap();
     }
 
     #[test]
@@ -777,19 +886,42 @@ mod tests {
         let rec = Arc::new(Recorder::default());
         struct Proxy(Arc<Recorder>);
         impl AuditProgress for Proxy {
-            fn on_file_started(&self, f: &Path) { self.0.on_file_started(f) }
-            fn on_file_finished(&self, f: &Path, n: usize) { self.0.on_file_finished(f, n) }
-            fn on_log(&self, m: String) { self.0.on_log(m) }
+            fn on_file_started(&self, f: &Path) {
+                self.0.on_file_started(f)
+            }
+            fn on_file_finished(&self, f: &Path, n: usize) {
+                self.0.on_file_finished(f, n)
+            }
+            fn on_log(&self, m: String) {
+                self.0.on_log(m)
+            }
         }
-        let report = audit_directory(&dir, &shipped_cfg(), Proxy(rec.clone()), &CancellationToken::new()).unwrap();
+        let report = audit_directory(
+            &dir,
+            &shipped_cfg(),
+            Proxy(rec.clone()),
+            &CancellationToken::new(),
+        )
+        .unwrap();
         assert_eq!(report.total_files, 0);
-        assert!(rec.logs.lock().unwrap().iter().any(|l| l.contains("没有找到")));
+        assert!(rec
+            .logs
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|l| l.contains("没有找到")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn non_directory_returns_friendly_invalid_path() {
-        let e = audit_directory(Path::new("/definitely/not/a/dir"), &shipped_cfg(), (), &CancellationToken::new()).unwrap_err();
+        let e = audit_directory(
+            Path::new("/definitely/not/a/dir"),
+            &shipped_cfg(),
+            (),
+            &CancellationToken::new(),
+        )
+        .unwrap_err();
         assert!(matches!(e, CoreError::InvalidPath { .. }));
         assert!(e.user_message().contains("文件夹"), "{}", e.user_message());
     }
@@ -798,6 +930,9 @@ mod tests {
     fn timestamp_format_sane() {
         let ts = now_display();
         // YYYY-MM-DD HH:MM:SS UTC
-        assert!(ts.len() >= 20 && ts.as_bytes()[4] == b'-' && ts.contains("UTC"), "{ts}");
+        assert!(
+            ts.len() >= 20 && ts.as_bytes()[4] == b'-' && ts.contains("UTC"),
+            "{ts}"
+        );
     }
 }

@@ -14,22 +14,26 @@ pub struct LineSpacingChecker {
 
 impl LineSpacingChecker {
     fn accepts(&self, ls: &LineSpacing, tol_mult: f64, tol_pt: f64) -> bool {
-        self.allowed.iter().any(|exp| match (ls, exp.rule.as_str()) {
-            (LineSpacing::Multiple { factor }, "multiple") => {
-                exp.factor.map(|f| within(*factor, f, tol_mult)).unwrap_or(false)
-            }
-            (LineSpacing::Exact { points }, "exact") => {
-                let lo = exp.min_points.unwrap_or(*points);
-                let hi = exp.max_points.unwrap_or(*points);
-                *points >= lo - tol_pt && *points <= hi + tol_pt
-            }
-            (LineSpacing::AtLeast { points }, "atLeast") | (LineSpacing::AtLeast { points }, "at_least") => {
-                let lo = exp.min_points.unwrap_or(*points);
-                let hi = exp.max_points.unwrap_or(f64::INFINITY);
-                *points >= lo - tol_pt && *points <= hi + tol_pt
-            }
-            _ => false,
-        })
+        self.allowed
+            .iter()
+            .any(|exp| match (ls, exp.rule.as_str()) {
+                (LineSpacing::Multiple { factor }, "multiple") => exp
+                    .factor
+                    .map(|f| within(*factor, f, tol_mult))
+                    .unwrap_or(false),
+                (LineSpacing::Exact { points }, "exact") => {
+                    let lo = exp.min_points.unwrap_or(*points);
+                    let hi = exp.max_points.unwrap_or(*points);
+                    *points >= lo - tol_pt && *points <= hi + tol_pt
+                }
+                (LineSpacing::AtLeast { points }, "atLeast")
+                | (LineSpacing::AtLeast { points }, "at_least") => {
+                    let lo = exp.min_points.unwrap_or(*points);
+                    let hi = exp.max_points.unwrap_or(f64::INFINITY);
+                    *points >= lo - tol_pt && *points <= hi + tol_pt
+                }
+                _ => false,
+            })
     }
 
     fn describe(&self) -> String {
@@ -90,7 +94,10 @@ impl LineSpacingChecker {
             ctx.rule,
             &ctx.document.path,
             loc_of(p),
-            format!("{}当前为{actual}。", ctx.rule.message.trim_end_matches('。')),
+            format!(
+                "{}当前为{actual}。",
+                ctx.rule.message.trim_end_matches('。')
+            ),
             Some(self.describe()),
             Some(actual),
             Some(excerpt_of(p.text.trim(), 30)),
@@ -112,8 +119,18 @@ fn paragraph_font_size(ctx: &AuditContext<'_>, p: &Paragraph) -> Option<f64> {
     p.runs
         .iter()
         .find(|r| !r.text.trim().is_empty())
-        .and_then(|r| r.effective.as_ref().and_then(|e| e.font_size_pt).or(r.direct.font_size_pt))
-        .or_else(|| ctx.document.doc_defaults.as_ref().and_then(|d| d.run_props.font_size_pt))
+        .and_then(|r| {
+            r.effective
+                .as_ref()
+                .and_then(|e| e.font_size_pt)
+                .or(r.direct.font_size_pt)
+        })
+        .or_else(|| {
+            ctx.document
+                .doc_defaults
+                .as_ref()
+                .and_then(|d| d.run_props.font_size_pt)
+        })
 }
 
 #[derive(Clone, Copy)]
@@ -127,8 +144,14 @@ enum IndentWhich {
 fn actual_indent_chars(ctx: &AuditContext<'_>, p: &Paragraph, which: IndentWhich) -> Option<f64> {
     let eff = p.effective.clone().unwrap_or_default();
     let ind = match which {
-        IndentWhich::FirstLine => eff.first_line_indent.clone().or(p.direct.first_line_indent.clone()),
-        IndentWhich::Hanging => eff.hanging_indent.clone().or(p.direct.hanging_indent.clone()),
+        IndentWhich::FirstLine => eff
+            .first_line_indent
+            .clone()
+            .or(p.direct.first_line_indent.clone()),
+        IndentWhich::Hanging => eff
+            .hanging_indent
+            .clone()
+            .or(p.direct.hanging_indent.clone()),
         IndentWhich::Left => eff.left_indent.clone().or(p.direct.left_indent.clone()),
     }?;
     if let Indent::Characters { value } = &ind {
@@ -174,7 +197,11 @@ impl Checker for IndentChecker {
                         ctx.rule,
                         &ctx.document.path,
                         loc_of(p),
-                        format!("{}当前约为 {} 字符。", ctx.rule.message.trim_end_matches('。'), fmt_num(got)),
+                        format!(
+                            "{}当前约为 {} 字符。",
+                            ctx.rule.message.trim_end_matches('。'),
+                            fmt_num(got)
+                        ),
                         Some(format!("{want} 字符")),
                         Some(format!("约 {} 字符", fmt_num(got))),
                         Some(excerpt_of(text, 30)),
@@ -199,7 +226,11 @@ impl Checker for IndentChecker {
                     ctx.rule,
                     &ctx.document.path,
                     loc_of(p),
-                    format!("{}当前约为 {} 字符。", ctx.rule.message.trim_end_matches('。'), fmt_num(got)),
+                    format!(
+                        "{}当前约为 {} 字符。",
+                        ctx.rule.message.trim_end_matches('。'),
+                        fmt_num(got)
+                    ),
                     Some(format!("{want} 字符")),
                     Some(format!("约 {} 字符", fmt_num(got))),
                     Some(excerpt_of(text, 30)),
@@ -217,7 +248,11 @@ impl Checker for IndentChecker {
                         ctx.rule,
                         &ctx.document.path,
                         loc_of(p),
-                        format!("{}当前约为 {} 字符。", ctx.rule.message.trim_end_matches('。'), fmt_num(got)),
+                        format!(
+                            "{}当前约为 {} 字符。",
+                            ctx.rule.message.trim_end_matches('。'),
+                            fmt_num(got)
+                        ),
                         Some(format!("{want} 字符")),
                         Some(format!("约 {} 字符", fmt_num(got))),
                         Some(excerpt_of(text, 30)),
@@ -254,7 +289,11 @@ impl Checker for AlignmentChecker {
                 ctx.rule,
                 &ctx.document.path,
                 loc_of(p),
-                format!("{}当前为{}。", ctx.rule.message.trim_end_matches('。'), a.label_cn()),
+                format!(
+                    "{}当前为{}。",
+                    ctx.rule.message.trim_end_matches('。'),
+                    a.label_cn()
+                ),
                 Some(format!("应{}", self.expected.label_cn())),
                 Some(a.label_cn().to_string()),
                 Some(excerpt_of(p.text.trim(), 30)),
@@ -283,7 +322,10 @@ impl Checker for BoldChecker {
             if r.text.trim().is_empty() {
                 return true;
             }
-            r.effective.as_ref().map(|e| e.bold).unwrap_or(r.direct.bold.unwrap_or(false))
+            r.effective
+                .as_ref()
+                .map(|e| e.bold)
+                .unwrap_or(r.direct.bold.unwrap_or(false))
         });
         if all_bold == self.expected {
             Vec::new()
@@ -293,8 +335,16 @@ impl Checker for BoldChecker {
                 &ctx.document.path,
                 loc_of(p),
                 ctx.rule.message.clone(),
-                Some(if self.expected { "加粗".into() } else { "不加粗".into() }),
-                Some(if all_bold { "加粗".into() } else { "未加粗".into() }),
+                Some(if self.expected {
+                    "加粗".into()
+                } else {
+                    "不加粗".into()
+                }),
+                Some(if all_bold {
+                    "加粗".into()
+                } else {
+                    "未加粗".into()
+                }),
                 Some(excerpt_of(p.text.trim(), 30)),
                 0.85,
             )]
@@ -314,7 +364,10 @@ pub struct TextLengthChecker {
 pub(crate) fn count_text(text: &str, mode: &CountMode) -> usize {
     match mode {
         CountMode::VisibleChars => text.chars().filter(|c| !c.is_whitespace()).count(),
-        CountMode::CjkChars => text.chars().filter(|c| crate::dsl::is_cjk_ideograph(*c)).count(),
+        CountMode::CjkChars => text
+            .chars()
+            .filter(|c| crate::dsl::is_cjk_ideograph(*c))
+            .count(),
         CountMode::CjkCharsPlusLatinWords => {
             let mut n = 0usize;
             let mut in_word = false;
@@ -338,7 +391,10 @@ pub(crate) fn count_text(text: &str, mode: &CountMode) -> usize {
 
 /// 去除 “关键词：/摘要：” 等标签前缀（含全角空格与冒号变体）。
 pub(crate) fn strip_label_prefix(text: &str) -> String {
-    let re = regex::Regex::new(r"^[\s\u{3000}]*(摘\s*要|关\s*键\s*词|Keywords?|Abstract)[\s\u{3000}]*[:：][\s\u{3000}]*").unwrap();
+    let re = regex::Regex::new(
+        r"^[\s\u{3000}]*(摘\s*要|关\s*键\s*词|Keywords?|Abstract)[\s\u{3000}]*[:：][\s\u{3000}]*",
+    )
+    .unwrap();
     re.replace(text, "").into_owned()
 }
 
@@ -364,7 +420,10 @@ impl Checker for TextLengthChecker {
             return vec![length_violation(
                 ctx,
                 p,
-                &format!("内容偏短：建议不少于 {} 个词字（不含标点），当前约 {n} 个。", self.min),
+                &format!(
+                    "内容偏短：建议不少于 {} 个词字（不含标点），当前约 {n} 个。",
+                    self.min
+                ),
                 n,
             )];
         }
@@ -372,7 +431,10 @@ impl Checker for TextLengthChecker {
             return vec![length_violation(
                 ctx,
                 p,
-                &format!("内容偏长：建议不超过 {} 个词字（不含标点），当前约 {n} 个。", self.max),
+                &format!(
+                    "内容偏长：建议不超过 {} 个词字（不含标点），当前约 {n} 个。",
+                    self.max
+                ),
                 n,
             )];
         }
@@ -418,10 +480,26 @@ impl Checker for KeywordListChecker {
                 None,
             )];
         }
-        let seps: Vec<char> = self.separators.iter().filter_map(|s| s.chars().next()).collect();
-        let trailing = text.chars().next_back().map(|c| seps.contains(&c)).unwrap_or(false);
-        let cleaned = if trailing { text.trim_end_matches(seps.as_slice()).to_string() } else { text.clone() };
-        let parts: Vec<&str> = cleaned.split(seps.as_slice()).map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+        let seps: Vec<char> = self
+            .separators
+            .iter()
+            .filter_map(|s| s.chars().next())
+            .collect();
+        let trailing = text
+            .chars()
+            .next_back()
+            .map(|c| seps.contains(&c))
+            .unwrap_or(false);
+        let cleaned = if trailing {
+            text.trim_end_matches(seps.as_slice()).to_string()
+        } else {
+            text.clone()
+        };
+        let parts: Vec<&str> = cleaned
+            .split(seps.as_slice())
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect();
         let n = parts.len();
 
         let mut out = Vec::new();
@@ -430,7 +508,10 @@ impl Checker for KeywordListChecker {
                 ctx.rule,
                 &ctx.document.path,
                 loc_of(p),
-                format!("关键词数量建议在 {}–{} 个，当前识别到 {n} 个。", self.min_count, self.max_count),
+                format!(
+                    "关键词数量建议在 {}–{} 个，当前识别到 {n} 个。",
+                    self.min_count, self.max_count
+                ),
                 Some(format!("{}–{} 个", self.min_count, self.max_count)),
                 Some(format!("{n} 个")),
                 Some(excerpt_of(p.text.trim(), 40)),
@@ -475,7 +556,10 @@ mod tests {
 
     fn para_ls(text: &str, role: ParagraphRole, ls: Option<LineSpacing>) -> Paragraph {
         let mut p = para(vec![run_with(text, 0, Some(12.0), None, None)], role);
-        p.effective = Some(EffectiveParagraphFormat { line_spacing: ls, ..Default::default() });
+        p.effective = Some(EffectiveParagraphFormat {
+            line_spacing: ls,
+            ..Default::default()
+        });
         p
     }
 
@@ -488,18 +572,49 @@ mod tests {
 
     #[test]
     fn line_spacing_multiple_and_exact_pass_wide_fails() {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
-        let rule = cfg.rules.iter().find(|r| r.id == "body-line-spacing").unwrap();
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
+        let rule = cfg
+            .rules
+            .iter()
+            .find(|r| r.id == "body-line-spacing")
+            .unwrap();
         let c = crate::checkers::build_checker(rule, &cfg).unwrap();
         let doc = empty_doc();
-        let ctx = AuditContext { document: &doc, config: &cfg, rule };
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule,
+        };
         assert!(c
-            .check_paragraph(&ctx, &para_ls("正文内容示例。", ParagraphRole::Body, Some(LineSpacing::Multiple { factor: 1.5 })))
+            .check_paragraph(
+                &ctx,
+                &para_ls(
+                    "正文内容示例。",
+                    ParagraphRole::Body,
+                    Some(LineSpacing::Multiple { factor: 1.5 })
+                )
+            )
             .is_empty());
         assert!(c
-            .check_paragraph(&ctx, &para_ls("正文内容示例。", ParagraphRole::Body, Some(LineSpacing::Exact { points: 20.0 })))
+            .check_paragraph(
+                &ctx,
+                &para_ls(
+                    "正文内容示例。",
+                    ParagraphRole::Body,
+                    Some(LineSpacing::Exact { points: 20.0 })
+                )
+            )
             .is_empty());
-        let vs = c.check_paragraph(&ctx, &para_ls("正文内容示例。", ParagraphRole::Body, Some(LineSpacing::Exact { points: 28.0 })));
+        let vs = c.check_paragraph(
+            &ctx,
+            &para_ls(
+                "正文内容示例。",
+                ParagraphRole::Body,
+                Some(LineSpacing::Exact { points: 28.0 }),
+            ),
+        );
         assert_eq!(vs.len(), 1);
         assert_eq!(vs[0].severity, Severity::Warning);
         assert!(vs[0].message.contains("行距"));
@@ -507,11 +622,21 @@ mod tests {
 
     #[test]
     fn line_spacing_unknown_is_info() {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
-        let rule = cfg.rules.iter().find(|r| r.id == "body-line-spacing").unwrap();
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
+        let rule = cfg
+            .rules
+            .iter()
+            .find(|r| r.id == "body-line-spacing")
+            .unwrap();
         let c = crate::checkers::build_checker(rule, &cfg).unwrap();
         let doc = empty_doc();
-        let ctx = AuditContext { document: &doc, config: &cfg, rule };
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule,
+        };
         let vs = c.check_paragraph(&ctx, &para_ls("正文内容示例。", ParagraphRole::Body, None));
         assert_eq!(vs.len(), 1);
         assert_eq!(vs[0].severity, Severity::Info);
@@ -519,61 +644,141 @@ mod tests {
 
     fn para_indent(text: &str, role: ParagraphRole, first: Option<Indent>) -> Paragraph {
         let mut p = para(vec![run_with(text, 0, Some(12.0), None, None)], role);
-        p.effective = Some(EffectiveParagraphFormat { first_line_indent: first, ..Default::default() });
+        p.effective = Some(EffectiveParagraphFormat {
+            first_line_indent: first,
+            ..Default::default()
+        });
         p
     }
 
     #[test]
     fn first_line_indent_2_chars_passes_0_warns() {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
-        let rule = cfg.rules.iter().find(|r| r.id == "body-first-line-indent").unwrap();
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
+        let rule = cfg
+            .rules
+            .iter()
+            .find(|r| r.id == "body-first-line-indent")
+            .unwrap();
         let c = crate::checkers::build_checker(rule, &cfg).unwrap();
         let doc = empty_doc();
-        let ctx = AuditContext { document: &doc, config: &cfg, rule };
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule,
+        };
         let long = "教育公平是教育发展质量的重要体现，需要在制度层面持续推进均衡化安排。";
         assert!(c
-            .check_paragraph(&ctx, &para_indent(long, ParagraphRole::Body, Some(Indent::Characters { value: 2.0 })))
+            .check_paragraph(
+                &ctx,
+                &para_indent(
+                    long,
+                    ParagraphRole::Body,
+                    Some(Indent::Characters { value: 2.0 })
+                )
+            )
             .is_empty());
-        let vs = c.check_paragraph(&ctx, &para_indent(long, ParagraphRole::Body, Some(Indent::Characters { value: 0.0 })));
+        let vs = c.check_paragraph(
+            &ctx,
+            &para_indent(
+                long,
+                ParagraphRole::Body,
+                Some(Indent::Characters { value: 0.0 }),
+            ),
+        );
         assert_eq!(vs.len(), 1);
         assert_eq!(vs[0].severity, Severity::Warning);
         // twip 估算：480 twip = 24pt = 2 字符（12pt 字号）
-        assert!(c.check_paragraph(&ctx, &para_indent(long, ParagraphRole::Body, Some(Indent::Twips { value: 480.0 }))).is_empty());
+        assert!(c
+            .check_paragraph(
+                &ctx,
+                &para_indent(
+                    long,
+                    ParagraphRole::Body,
+                    Some(Indent::Twips { value: 480.0 })
+                )
+            )
+            .is_empty());
         // 短段落不误报
         assert!(c
-            .check_paragraph(&ctx, &para_indent("很短的句子。", ParagraphRole::Body, Some(Indent::Characters { value: 0.0 })))
+            .check_paragraph(
+                &ctx,
+                &para_indent(
+                    "很短的句子。",
+                    ParagraphRole::Body,
+                    Some(Indent::Characters { value: 0.0 })
+                )
+            )
             .is_empty());
     }
 
     #[test]
     fn hanging_indent_for_references() {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
-        let rule = cfg.rules.iter().find(|r| r.id == "reference-hanging-indent").unwrap();
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
+        let rule = cfg
+            .rules
+            .iter()
+            .find(|r| r.id == "reference-hanging-indent")
+            .unwrap();
         let c = crate::checkers::build_checker(rule, &cfg).unwrap();
         let doc = empty_doc();
-        let ctx = AuditContext { document: &doc, config: &cfg, rule };
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule,
+        };
         let mut p = para(
-            vec![run_with("[1] 张三. 教育公平研究[M]. 北京: 教育出版社, 2020.", 0, Some(12.0), None, None)],
+            vec![run_with(
+                "[1] 张三. 教育公平研究[M]. 北京: 教育出版社, 2020.",
+                0,
+                Some(12.0),
+                None,
+                None,
+            )],
             ParagraphRole::ReferenceEntry,
         );
-        p.effective = Some(EffectiveParagraphFormat { hanging_indent: Some(Indent::Characters { value: 2.0 }), ..Default::default() });
+        p.effective = Some(EffectiveParagraphFormat {
+            hanging_indent: Some(Indent::Characters { value: 2.0 }),
+            ..Default::default()
+        });
         assert!(c.check_paragraph(&ctx, &p).is_empty());
-        p.effective = Some(EffectiveParagraphFormat { hanging_indent: Some(Indent::Characters { value: 0.0 }), ..Default::default() });
+        p.effective = Some(EffectiveParagraphFormat {
+            hanging_indent: Some(Indent::Characters { value: 0.0 }),
+            ..Default::default()
+        });
         let vs = c.check_paragraph(&ctx, &p);
         assert_eq!(vs.len(), 1);
     }
 
     #[test]
     fn alignment_heading_center() {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
         let rule = cfg.rules.iter().find(|r| r.id == "heading1-align").unwrap();
         let c = crate::checkers::build_checker(rule, &cfg).unwrap();
         let doc = empty_doc();
-        let ctx = AuditContext { document: &doc, config: &cfg, rule };
-        let mut p = para(vec![run_with("一、绪论", 0, Some(16.0), None, None)], ParagraphRole::Heading { level: 1 });
-        p.effective = Some(EffectiveParagraphFormat { alignment: Some(crate::dsl::Alignment::Center), ..Default::default() });
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule,
+        };
+        let mut p = para(
+            vec![run_with("一、绪论", 0, Some(16.0), None, None)],
+            ParagraphRole::Heading { level: 1 },
+        );
+        p.effective = Some(EffectiveParagraphFormat {
+            alignment: Some(crate::dsl::Alignment::Center),
+            ..Default::default()
+        });
         assert!(c.check_paragraph(&ctx, &p).is_empty());
-        p.effective = Some(EffectiveParagraphFormat { alignment: Some(crate::dsl::Alignment::Left), ..Default::default() });
+        p.effective = Some(EffectiveParagraphFormat {
+            alignment: Some(crate::dsl::Alignment::Left),
+            ..Default::default()
+        });
         let vs = c.check_paragraph(&ctx, &p);
         assert_eq!(vs.len(), 1);
         assert_eq!(vs[0].severity, Severity::Warning);
@@ -585,22 +790,52 @@ mod tests {
 
     #[test]
     fn abstract_length_counts_cjk_plus_latin_words() {
-        assert_eq!(count_text("教育人工智能发展研究", &CountMode::CjkCharsPlusLatinWords), 10);
+        assert_eq!(
+            count_text("教育人工智能发展研究", &CountMode::CjkCharsPlusLatinWords),
+            10
+        );
         // AI(1) + 与(1) + education(1) + 公平(2) + 2026(1) = 6：每个汉字计 1，连续英文单词/数字串各计 1。
-        assert_eq!(count_text("AI 与 education 公平 2026", &CountMode::CjkCharsPlusLatinWords), 6);
+        assert_eq!(
+            count_text(
+                "AI 与 education 公平 2026",
+                &CountMode::CjkCharsPlusLatinWords
+            ),
+            6
+        );
         assert_eq!(strip_label_prefix("摘要：本文研究了……"), "本文研究了……");
     }
 
     #[test]
     fn abstract_length_250_passes_120_warns() {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
-        let rule = cfg.rules.iter().find(|r| r.id == "abstract-length").unwrap();
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
+        let rule = cfg
+            .rules
+            .iter()
+            .find(|r| r.id == "abstract-length")
+            .unwrap();
         let c = crate::checkers::build_checker(rule, &cfg).unwrap();
         let doc = empty_doc();
-        let ctx = AuditContext { document: &doc, config: &cfg, rule };
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule,
+        };
         let text250 = "研".repeat(250);
-        assert!(c.check_paragraph(&ctx, &text_para(&format!("摘要：{text250}"), ParagraphRole::AbstractBody)).is_empty());
-        let vs = c.check_paragraph(&ctx, &text_para(&format!("摘要：{}", "研".repeat(120)), ParagraphRole::AbstractBody));
+        assert!(c
+            .check_paragraph(
+                &ctx,
+                &text_para(&format!("摘要：{text250}"), ParagraphRole::AbstractBody)
+            )
+            .is_empty());
+        let vs = c.check_paragraph(
+            &ctx,
+            &text_para(
+                &format!("摘要：{}", "研".repeat(120)),
+                ParagraphRole::AbstractBody,
+            ),
+        );
         assert_eq!(vs.len(), 1);
         assert_eq!(vs[0].severity, Severity::Warning);
         assert!(vs[0].message.contains("不少于 200"));
@@ -608,28 +843,64 @@ mod tests {
 
     #[test]
     fn keyword_count_3_passes_2_and_6_warn() {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
         let rule = cfg.rules.iter().find(|r| r.id == "keyword-count").unwrap();
         let c = crate::checkers::build_checker(rule, &cfg).unwrap();
         let doc = empty_doc();
-        let ctx = AuditContext { document: &doc, config: &cfg, rule };
-        assert!(c.check_paragraph(&ctx, &text_para("关键词：教育公平；政策分析；实证研究", ParagraphRole::KeywordsBody)).is_empty());
-        let vs = c.check_paragraph(&ctx, &text_para("关键词：教育公平；政策分析", ParagraphRole::KeywordsBody));
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule,
+        };
+        assert!(c
+            .check_paragraph(
+                &ctx,
+                &text_para(
+                    "关键词：教育公平；政策分析；实证研究",
+                    ParagraphRole::KeywordsBody
+                )
+            )
+            .is_empty());
+        let vs = c.check_paragraph(
+            &ctx,
+            &text_para("关键词：教育公平；政策分析", ParagraphRole::KeywordsBody),
+        );
         assert_eq!(vs.len(), 1);
         assert!(vs[0].message.contains("当前识别到 2 个"));
-        let vs = c.check_paragraph(&ctx, &text_para("关键词：A；B；C；D；E；F", ParagraphRole::KeywordsBody));
+        let vs = c.check_paragraph(
+            &ctx,
+            &text_para("关键词：A；B；C；D；E；F", ParagraphRole::KeywordsBody),
+        );
         assert_eq!(vs.len(), 1);
         assert!(vs[0].message.contains("当前识别到 6 个"));
     }
 
     #[test]
     fn keyword_trailing_separator_is_info_not_error() {
-        let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
-        let rule = cfg.rules.iter().find(|r| r.id == "keyword-separator-style").unwrap();
+        let cfg = config_from_json(include_str!(
+            "../../../../resources/rules/education_generic.json"
+        ));
+        let rule = cfg
+            .rules
+            .iter()
+            .find(|r| r.id == "keyword-separator-style")
+            .unwrap();
         let c = crate::checkers::build_checker(rule, &cfg).unwrap();
         let doc = empty_doc();
-        let ctx = AuditContext { document: &doc, config: &cfg, rule };
-        let vs = c.check_paragraph(&ctx, &text_para("关键词：教育公平；政策分析；实证研究；", ParagraphRole::KeywordsBody));
+        let ctx = AuditContext {
+            document: &doc,
+            config: &cfg,
+            rule,
+        };
+        let vs = c.check_paragraph(
+            &ctx,
+            &text_para(
+                "关键词：教育公平；政策分析；实证研究；",
+                ParagraphRole::KeywordsBody,
+            ),
+        );
         assert_eq!(vs.len(), 1);
         assert_eq!(vs[0].severity, Severity::Info);
         assert!(vs[0].message.contains("末尾"));

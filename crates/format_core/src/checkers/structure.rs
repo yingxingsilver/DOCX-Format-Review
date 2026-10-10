@@ -16,18 +16,20 @@ use crate::dsl::{
 
 /// 锚点是否命中某段落：labels 前缀/包含、roles、regex 任一命中即算。
 fn anchor_hits(a: &SequenceAnchor, p: &Paragraph, re: Option<&Regex>) -> bool {
-    if a
-        .labels
+    if a.labels
         .iter()
         .any(|l| !l.is_empty() && (p.text.starts_with(l.as_str()) || p.text.contains(l.as_str())))
     {
         return true;
     }
-    if a.roles.iter().any(|r| match ParagraphRole::from_kind_str(r) {
-        Some(ParagraphRole::Heading { .. }) => p.role.heading_level().is_some(),
-        Some(other) => p.role == other,
-        None => false,
-    }) {
+    if a.roles
+        .iter()
+        .any(|r| match ParagraphRole::from_kind_str(r) {
+            Some(ParagraphRole::Heading { .. }) => p.role.heading_level().is_some(),
+            Some(other) => p.role == other,
+            None => false,
+        })
+    {
         return true;
     }
     match re {
@@ -158,8 +160,15 @@ impl Checker for SequenceChecker {
 /// 中文数字（一~九十九）→ 数值。
 fn cn_num_to_u32(s: &str) -> Option<u32> {
     const DIGITS: [(&str, u32); 9] = [
-        ("一", 1), ("二", 2), ("三", 3), ("四", 4), ("五", 5),
-        ("六", 6), ("七", 7), ("八", 8), ("九", 9),
+        ("一", 1),
+        ("二", 2),
+        ("三", 3),
+        ("四", 4),
+        ("五", 5),
+        ("六", 6),
+        ("七", 7),
+        ("八", 8),
+        ("九", 9),
     ];
     let mut ten: u32 = 0;
     let mut unit: Option<u32> = None;
@@ -221,7 +230,9 @@ impl Checker for HeadingNumberingChecker {
         let mut mismatch_excerpt: Option<String> = None;
 
         for p in &ctx.document.paragraphs {
-            let Some(level) = p.role.heading_level() else { continue };
+            let Some(level) = p.role.heading_level() else {
+                continue;
+            };
             let text = p.text.trim_start();
             let res = &self.cn_res;
             // 先尝试“带小数点”的阿拉伯层级编号（1.1 / 1.1.1），它不属于 cn_mixed；
@@ -235,7 +246,10 @@ impl Checker for HeadingNumberingChecker {
                 let ok = match cap.get(2).map(|m| m.as_str()) {
                     None | Some("") => cap[0].ends_with(&cap[1]),
                     Some(ch) => ch.chars().next().is_some_and(|c| {
-                        c.is_whitespace() || c == '、' || c == '.' || crate::dsl::is_cjk_ideograph(c)
+                        c.is_whitespace()
+                            || c == '、'
+                            || c == '.'
+                            || crate::dsl::is_cjk_ideograph(c)
                     }),
                 };
                 if ok {
@@ -244,7 +258,10 @@ impl Checker for HeadingNumberingChecker {
             }
             if let Some((inferred, num)) = matched_arabic.clone() {
                 arabic_counts[inferred.min(3) - 1] += 1;
-                if self.check_level_match && inferred != level as usize && num.split('.').count() == inferred {
+                if self.check_level_match
+                    && inferred != level as usize
+                    && num.split('.').count() == inferred
+                {
                     level_mismatch += 1;
                     if mismatch_excerpt.is_none() {
                         mismatch_excerpt = Some(excerpt_of(&p.text, 30));
@@ -252,9 +269,15 @@ impl Checker for HeadingNumberingChecker {
                 }
                 continue;
             }
-            let matched_cn = if res[0].captures(text).is_some_and(|c| cn_num_to_u32(&c[1]).is_some()) {
+            let matched_cn = if res[0]
+                .captures(text)
+                .is_some_and(|c| cn_num_to_u32(&c[1]).is_some())
+            {
                 Some(1usize)
-            } else if res[1].captures(text).is_some_and(|c| cn_num_to_u32(&c[1]).is_some()) {
+            } else if res[1]
+                .captures(text)
+                .is_some_and(|c| cn_num_to_u32(&c[1]).is_some())
+            {
                 Some(2)
             } else if res[2].captures(text).is_some() {
                 Some(3)
@@ -294,7 +317,9 @@ impl Checker for HeadingNumberingChecker {
                 Default::default(),
                 "标题编号混用了两种体系（如“一、”与“1.1”），建议全文统一为一种。".into(),
                 Some("单一编号体系".into()),
-                Some(format!("中文体系 {cn_total} 处、数字体系 {arabic_total} 处")),
+                Some(format!(
+                    "中文体系 {cn_total} 处、数字体系 {arabic_total} 处"
+                )),
                 None,
                 0.6,
             )));
@@ -333,7 +358,12 @@ impl Checker for CitationOrderChecker {
 
     fn check_document(&self, ctx: &AuditContext<'_>) -> Vec<Violation> {
         let mut out = Vec::new();
-        let listed: Vec<u32> = ctx.document.reference_entries.iter().map(|e| e.number).collect();
+        let listed: Vec<u32> = ctx
+            .document
+            .reference_entries
+            .iter()
+            .map(|e| e.number)
+            .collect();
 
         // 文末编号连续性（应从 1 开始）。
         if !listed.is_empty() {
@@ -355,7 +385,10 @@ impl Checker for CitationOrderChecker {
                     ctx.rule,
                     &ctx.document.path,
                     Default::default(),
-                    format!("参考文献编号建议从 [1] 开始连续，当前缺少 {}。", shown.join("、")),
+                    format!(
+                        "参考文献编号建议从 [1] 开始连续，当前缺少 {}。",
+                        shown.join("、")
+                    ),
                     Some("编号连续".into()),
                     Some(format!("缺少 {}", shown.join("、"))),
                     None,
@@ -365,8 +398,12 @@ impl Checker for CitationOrderChecker {
         }
 
         // 正文引用序列。
-        let cited_seq: Vec<u32> =
-            ctx.document.citations.iter().flat_map(|c| c.numbers.iter().copied()).collect();
+        let cited_seq: Vec<u32> = ctx
+            .document
+            .citations
+            .iter()
+            .flat_map(|c| c.numbers.iter().copied())
+            .collect();
         if cited_seq.is_empty() || listed.is_empty() {
             return out;
         }
@@ -381,7 +418,10 @@ impl Checker for CitationOrderChecker {
                 ctx.rule,
                 &ctx.document.path,
                 Default::default(),
-                format!("正文引用了 {}，但文末参考文献中没有对应条目。", shown.join("、")),
+                format!(
+                    "正文引用了 {}，但文末参考文献中没有对应条目。",
+                    shown.join("、")
+                ),
                 Some("每条引用都有对应文献".into()),
                 Some(format!("{} 未列出", shown.join("、"))),
                 None,
@@ -460,11 +500,18 @@ mod tests {
         }
     }
 
-    fn ctx<'a>(doc: &'a crate::dsl::ParsedDocument, rule: &'a crate::dsl::Rule) -> AuditContext<'a> {
+    fn ctx<'a>(
+        doc: &'a crate::dsl::ParsedDocument,
+        rule: &'a crate::dsl::Rule,
+    ) -> AuditContext<'a> {
         let cfg: &'static RuleConfig = Box::leak(Box::new(
             crate::rules::tests_helper::config_from_json(r#"{"name":"t","rules":[]}"#),
         ));
-        AuditContext { document: doc, config: cfg, rule }
+        AuditContext {
+            document: doc,
+            config: cfg,
+            rule,
+        }
     }
 
     fn set_idx(doc: &mut crate::dsl::ParsedDocument) {
@@ -485,15 +532,30 @@ mod tests {
         let r = test_rule();
         let c = SequenceChecker {
             anchors: vec![
-                SequenceAnchor { id: "摘要".into(), labels: vec!["摘要".into()], roles: vec![], regex: None, optional: false },
-                SequenceAnchor { id: "关键词".into(), labels: vec!["关键词".into()], roles: vec![], regex: None, optional: false },
+                SequenceAnchor {
+                    id: "摘要".into(),
+                    labels: vec!["摘要".into()],
+                    roles: vec![],
+                    regex: None,
+                    optional: false,
+                },
+                SequenceAnchor {
+                    id: "关键词".into(),
+                    labels: vec!["关键词".into()],
+                    roles: vec![],
+                    regex: None,
+                    optional: false,
+                },
             ],
             strict: false,
             anchor_regexes: vec![None, None],
         };
         let mut doc = empty_doc();
         doc.paragraphs = vec![
-            abs_para("摘要：本文研究了格式审核方法。", ParagraphRole::AbstractBody),
+            abs_para(
+                "摘要：本文研究了格式审核方法。",
+                ParagraphRole::AbstractBody,
+            ),
             abs_para("关键词：格式；审核；DOCX", ParagraphRole::KeywordsBody),
         ];
         set_idx(&mut doc);
@@ -505,8 +567,20 @@ mod tests {
         let r = test_rule();
         let c = SequenceChecker {
             anchors: vec![
-                SequenceAnchor { id: "摘要".into(), labels: vec!["摘要".into()], roles: vec![], regex: None, optional: false },
-                SequenceAnchor { id: "关键词".into(), labels: vec!["关键词".into()], roles: vec![], regex: None, optional: false },
+                SequenceAnchor {
+                    id: "摘要".into(),
+                    labels: vec!["摘要".into()],
+                    roles: vec![],
+                    regex: None,
+                    optional: false,
+                },
+                SequenceAnchor {
+                    id: "关键词".into(),
+                    labels: vec!["关键词".into()],
+                    roles: vec![],
+                    regex: None,
+                    optional: false,
+                },
             ],
             strict: false,
             anchor_regexes: vec![None, None],
@@ -514,7 +588,10 @@ mod tests {
         let mut doc = empty_doc();
         doc.paragraphs = vec![
             abs_para("关键词：格式；审核", ParagraphRole::KeywordsBody),
-            abs_para("摘要：本文研究了格式审核方法。", ParagraphRole::AbstractBody),
+            abs_para(
+                "摘要：本文研究了格式审核方法。",
+                ParagraphRole::AbstractBody,
+            ),
         ];
         set_idx(&mut doc);
         let vs = c.check_document(&ctx(&doc, &r));
@@ -529,8 +606,20 @@ mod tests {
         let r = test_rule();
         let c = SequenceChecker {
             anchors: vec![
-                SequenceAnchor { id: "摘要".into(), labels: vec!["摘要".into()], roles: vec![], regex: None, optional: false },
-                SequenceAnchor { id: "作者".into(), labels: vec![], roles: vec!["author".into()], regex: None, optional: true },
+                SequenceAnchor {
+                    id: "摘要".into(),
+                    labels: vec!["摘要".into()],
+                    roles: vec![],
+                    regex: None,
+                    optional: false,
+                },
+                SequenceAnchor {
+                    id: "作者".into(),
+                    labels: vec![],
+                    roles: vec!["author".into()],
+                    regex: None,
+                    optional: true,
+                },
             ],
             strict: false,
             anchor_regexes: vec![None, None],
@@ -538,7 +627,10 @@ mod tests {
         let mut doc = empty_doc();
         doc.paragraphs = vec![abs_para("摘要：内容", ParagraphRole::AbstractBody)];
         set_idx(&mut doc);
-        assert!(c.check_document(&ctx(&doc, &r)).is_empty(), "optional 锚点缺失不应报错");
+        assert!(
+            c.check_document(&ctx(&doc, &r)).is_empty(),
+            "optional 锚点缺失不应报错"
+        );
     }
 
     #[test]
@@ -546,8 +638,20 @@ mod tests {
         let r = test_rule();
         let c = SequenceChecker {
             anchors: vec![
-                SequenceAnchor { id: "摘要".into(), labels: vec!["摘要".into()], roles: vec![], regex: None, optional: false },
-                SequenceAnchor { id: "参考文献".into(), labels: vec!["参考文献".into()], roles: vec![], regex: None, optional: false },
+                SequenceAnchor {
+                    id: "摘要".into(),
+                    labels: vec!["摘要".into()],
+                    roles: vec![],
+                    regex: None,
+                    optional: false,
+                },
+                SequenceAnchor {
+                    id: "参考文献".into(),
+                    labels: vec!["参考文献".into()],
+                    roles: vec![],
+                    regex: None,
+                    optional: false,
+                },
             ],
             strict: false,
             anchor_regexes: vec![None, None],
@@ -610,15 +714,32 @@ mod tests {
     #[test]
     fn citation_order_ascending_passes() {
         let r = test_rule();
-        let c = CitationOrderChecker { require_ascending: true, allow_repeated: true };
+        let c = CitationOrderChecker {
+            require_ascending: true,
+            allow_repeated: true,
+        };
         let mut doc = empty_doc();
         doc.citations = [1u32, 2, 3]
             .iter()
             .enumerate()
-            .map(|(i, n)| CitationOccurrence { paragraph_index: i, run_index: None, raw: format!("[{n}]"), numbers: vec![*n], page_hint: None })
+            .map(|(i, n)| CitationOccurrence {
+                paragraph_index: i,
+                run_index: None,
+                raw: format!("[{n}]"),
+                numbers: vec![*n],
+                page_hint: None,
+            })
             .collect();
         doc.reference_entries = (1..=3)
-            .map(|n| ReferenceEntry { paragraph_index: n as usize, number: n, raw: format!("[{n}] 文献"), type_tag: Some("J".into()), has_year: true, has_pages: false, has_journal_or_publisher: true })
+            .map(|n| ReferenceEntry {
+                paragraph_index: n as usize,
+                number: n,
+                raw: format!("[{n}] 文献"),
+                type_tag: Some("J".into()),
+                has_year: true,
+                has_pages: false,
+                has_journal_or_publisher: true,
+            })
             .collect();
         assert!(c.check_document(&ctx(&doc, &r)).is_empty());
     }
@@ -626,36 +747,78 @@ mod tests {
     #[test]
     fn citation_order_descending_and_dangling_warn() {
         let r = test_rule();
-        let c = CitationOrderChecker { require_ascending: true, allow_repeated: false };
+        let c = CitationOrderChecker {
+            require_ascending: true,
+            allow_repeated: false,
+        };
         let mut doc = empty_doc();
         doc.citations = [3u32, 2, 1, 3, 2, 9]
             .iter()
             .enumerate()
-            .map(|(i, n)| CitationOccurrence { paragraph_index: i, run_index: None, raw: format!("[{n}]"), numbers: vec![*n], page_hint: None })
+            .map(|(i, n)| CitationOccurrence {
+                paragraph_index: i,
+                run_index: None,
+                raw: format!("[{n}]"),
+                numbers: vec![*n],
+                page_hint: None,
+            })
             .collect();
         doc.reference_entries = (1..=3)
-            .map(|n| ReferenceEntry { paragraph_index: n as usize, number: n, raw: format!("[{n}] 文献"), type_tag: Some("J".into()), has_year: true, has_pages: false, has_journal_or_publisher: true })
+            .map(|n| ReferenceEntry {
+                paragraph_index: n as usize,
+                number: n,
+                raw: format!("[{n}] 文献"),
+                type_tag: Some("J".into()),
+                has_year: true,
+                has_pages: false,
+                has_journal_or_publisher: true,
+            })
             .collect();
         let vs = c.check_document(&ctx(&doc, &r));
         assert!(vs.iter().any(|v| v.message.contains("回跳")));
-        assert!(vs.iter().any(|v| v.message.contains("[9]")), "引而未列应报告");
-        assert!(vs.iter().all(|v| v.severity == Severity::Warning && v.requires_manual_review));
+        assert!(
+            vs.iter().any(|v| v.message.contains("[9]")),
+            "引而未列应报告"
+        );
+        assert!(vs
+            .iter()
+            .all(|v| v.severity == Severity::Warning && v.requires_manual_review));
     }
 
     #[test]
     fn repeated_adjacent_citation_allowed() {
         let r = test_rule();
-        let c = CitationOrderChecker { require_ascending: true, allow_repeated: true };
+        let c = CitationOrderChecker {
+            require_ascending: true,
+            allow_repeated: true,
+        };
         let mut doc = empty_doc();
         doc.citations = [1u32, 1, 2, 3]
             .iter()
             .enumerate()
-            .map(|(i, n)| CitationOccurrence { paragraph_index: i, run_index: None, raw: format!("[{n}]"), numbers: vec![*n], page_hint: None })
+            .map(|(i, n)| CitationOccurrence {
+                paragraph_index: i,
+                run_index: None,
+                raw: format!("[{n}]"),
+                numbers: vec![*n],
+                page_hint: None,
+            })
             .collect();
         doc.reference_entries = (1..=3)
-            .map(|n| ReferenceEntry { paragraph_index: n as usize, number: n, raw: format!("[{n}] 文献"), type_tag: Some("J".into()), has_year: true, has_pages: false, has_journal_or_publisher: true })
+            .map(|n| ReferenceEntry {
+                paragraph_index: n as usize,
+                number: n,
+                raw: format!("[{n}] 文献"),
+                type_tag: Some("J".into()),
+                has_year: true,
+                has_pages: false,
+                has_journal_or_publisher: true,
+            })
             .collect();
-        assert!(c.check_document(&ctx(&doc, &r)).is_empty(), "紧邻重复引用不应判为回跳");
+        assert!(
+            c.check_document(&ctx(&doc, &r)).is_empty(),
+            "紧邻重复引用不应判为回跳"
+        );
     }
 
     #[test]

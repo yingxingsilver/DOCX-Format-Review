@@ -49,29 +49,31 @@ mod tests {
         assert!(report::placeholder_ok());
         // P1：models 与 error 已有真实类型，用构造调用验证可访问。
         let _ = models::Severity::Error.label_cn();
-        let _ = error::CoreError::RuleInvalid { reason: "测试".into() };
+        let _ = error::CoreError::RuleInvalid {
+            reason: "测试".into(),
+        };
     }
 
     /// P5：audit 批量入口必须存在（进度回调 + 取消令牌 + AuditReport）。
     #[test]
     fn audit_engine_entry_points_exist() {
-        let _: fn(&crate::dsl::ParsedDocument, &crate::dsl::RuleConfig) -> error::CoreResult<Vec<crate::dsl::Violation>> =
-            audit::audit_document_with_config;
+        let _: fn(
+            &crate::dsl::ParsedDocument,
+            &crate::dsl::RuleConfig,
+        ) -> error::CoreResult<Vec<crate::dsl::Violation>> = audit::audit_document_with_config;
         let _: fn(
             &std::path::Path,
             &crate::dsl::RuleConfig,
             (),
             &audit::CancellationToken,
-        ) -> Vec<crate::dsl::FileAuditSummary> = |p, c, pr, t| {
-            audit::audit_directory(p, c, pr, t).unwrap().files
-        };
+        ) -> Vec<crate::dsl::FileAuditSummary> =
+            |p, c, pr, t| audit::audit_directory(p, c, pr, t).unwrap().files;
     }
 
     #[test]
     fn shipped_default_rules_match_schema() {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../rules/default.json");
-        let text = std::fs::read_to_string(path)
-            .unwrap_or_else(|e| panic!("无法读取 {path}: {e}"));
+        let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("无法读取 {path}: {e}"));
         let cfg: models::RuleConfig = serde_json::from_str(&text)
             .unwrap_or_else(|e| panic!("rules/default.json 不符合 RuleConfig 结构: {e}"));
         assert_eq!(cfg.rules.len(), 9);

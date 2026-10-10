@@ -62,14 +62,17 @@ pub fn parse_docx(path: &Path) -> CoreResult<ParsedDocument> {
             context: "读取解析结果".into(),
             source: e,
         })?;
-        let mut doc: ParsedDocument =
-            serde_json::from_str(&text).map_err(|e| CoreError::Xml {
-                part: "document".into(),
-                source: Box::new(e),
-            })?;
+        let mut doc: ParsedDocument = serde_json::from_str(&text).map_err(|e| CoreError::Xml {
+            part: "document".into(),
+            source: Box::new(e),
+        })?;
         // 以真实输入路径为准（sidecar 中可能记录的是导出机路径）。
         doc.path = path.to_path_buf();
-        doc.file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        doc.file_name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         return Ok(doc);
     }
     Err(CoreError::MissingPart {
