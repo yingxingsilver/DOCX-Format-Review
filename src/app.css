@@ -1,0 +1,13 @@
+/* 全局基础样式（骨架阶段） */
+:root {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #f9fafb;
+}

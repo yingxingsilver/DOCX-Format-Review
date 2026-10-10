@@ -1,0 +1,19 @@
+[package]
+name = "paper-format-auditor"
+version.workspace = true
+edition.workspace = true
+description = "论文格式审核系统 - Tauri 桌面端"
+
+[lib]
+name = "paper_format_auditor_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+format_core = { path = "../crates/format_core" }
