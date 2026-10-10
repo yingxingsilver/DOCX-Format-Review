@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn loads_shipped_rules_json() {
-        let cfg = load_rule_config("resources/rules/education_generic.json").unwrap();
+        let cfg = load_rule_config(concat!(env!("CARGO_MANIFEST_DIR"), "/../../resources/rules/education_generic.json")).unwrap();
         assert_eq!(cfg.rules.len(), 40);
         assert_eq!(cfg.defaults.tolerance.font_size_pt, 0.5);
         assert_eq!(cfg.font_size_alias_cn(12.0), Some("小四"));

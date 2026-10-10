@@ -989,7 +989,7 @@ pub struct ProfileOverride {
 }
 
 /// 角色识别辅助配置（供 P2/P3 解析器使用；规则引擎只透传）。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct TargetInferenceConfig {
     #[serde(default)]
     pub heading_style_names: Vec<String>,
@@ -1005,9 +1005,13 @@ pub struct TargetInferenceConfig {
     pub appendix_labels: Vec<String>,
     #[serde(default)]
     pub acknowledgement_labels: Vec<String>,
+    #[serde(default)]
     pub figure_caption_regex: String,
+    #[serde(default)]
     pub table_caption_regex: String,
+    #[serde(default)]
     pub reference_entry_regex: String,
+    #[serde(default)]
     pub in_text_citation_regex: String,
 }
 
@@ -1032,6 +1036,7 @@ pub struct RuleConfig {
     /// 中文字号别名（小四 → 12.0），用于 expected 文案展示。
     #[serde(default)]
     pub font_size_aliases: HashMap<String, f64>,
+    #[serde(default)]
     pub target_inference: TargetInferenceConfig,
     #[serde(default)]
     pub font_policy: FontPolicy,
