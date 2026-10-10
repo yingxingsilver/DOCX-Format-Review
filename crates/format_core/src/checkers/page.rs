@@ -78,9 +78,19 @@ pub struct PageMarginsChecker {
 }
 
 impl PageMarginsChecker {
+    /// 面向用户的方位词（“左侧/右侧/上侧/下侧”），比单字“左/右”更通顺。
+    fn side_label(name: &str) -> String {
+        if name.chars().next() == Some('首') || name.chars().next() == Some('尾') {
+            format!("{name}页")
+        } else {
+            format!("{name}侧")
+        }
+    }
+
     fn one_side(name: &str, actual: f64, want: f64) -> (String, String, String) {
+        let label = Self::side_label(name);
         (
-            format!("页边距{name}应为 {} cm，当前约为 {} cm。", fmt_num(want), fmt_num(actual)),
+            format!("页边距{label}应为 {} cm，当前约为 {} cm。", fmt_num(want), fmt_num(actual)),
             format!("{} cm", fmt_num(want)),
             format!("约 {} cm", fmt_num(actual)),
         )

@@ -224,6 +224,34 @@ impl Checker for HeadingNumberingChecker {
             let Some(level) = p.role.heading_level() else { continue };
             let text = p.text.trim_start();
             let res = &self.cn_res;
+            // 先尝试“带小数点”的阿拉伯层级编号（1.1 / 1.1.1），它不属于 cn_mixed；
+            // 再按 cn_mixed 四档（一、 / （一） / 1. / （1））分类；
+            // 最后才是纯数字开头的 arabic 一级（"1 引言"）。
+            let mut matched_arabic: Option<(usize, String)> = None;
+            if let Some(cap) = self.arabic_res[0].captures(text) {
+                matched_arabic = Some((1usize, cap[1].to_string()));
+            } else if let Some(cap) = self.arabic_res[1].captures(text) {
+                // 二级模式第 2 捕获组须为分隔符/汉字/行尾，避免 "2.1.3" 误判为二级。
+                let ok = match cap.get(2).map(|m| m.as_str()) {
+                    None | Some("") => cap[0].ends_with(&cap[1]),
+                    Some(ch) => ch.chars().next().is_some_and(|c| {
+                        c.is_whitespace() || c == '、' || c == '.' || crate::dsl::is_cjk_ideograph(c)
+                    }),
+                };
+                if ok {
+                    matched_arabic = Some((2usize, cap[1].to_string()));
+                }
+            }
+            if let Some((inferred, num)) = matched_arabic.clone() {
+                arabic_counts[inferred.min(3) - 1] += 1;
+                if self.check_level_match && inferred != level as usize && num.split('.').count() == inferred {
+                    level_mismatch += 1;
+                    if mismatch_excerpt.is_none() {
+                        mismatch_excerpt = Some(excerpt_of(&p.text, 30));
+                    }
+                }
+                continue;
+            }
             let matched_cn = if res[0].captures(text).is_some_and(|c| cn_num_to_u32(&c[1]).is_some()) {
                 Some(1usize)
             } else if res[1].captures(text).is_some_and(|c| cn_num_to_u32(&c[1]).is_some()) {
@@ -239,23 +267,9 @@ impl Checker for HeadingNumberingChecker {
                 cn_counts[slot - 1] += 1;
                 continue;
             }
-            // 阿拉伯小数体系：层级 = 段数（1 → 一级，1.1 → 二级，1.1.1 → 三级）。
-            let matched_arabic = self.arabic_res.iter().enumerate().find_map(|(i, re)| {
-                let cap = re.captures(text)?;
-                // 二级模式的第 2 捕获组必须为分隔符或汉字（或直接结尾），避免 "2.1.3" 被误判为二级。
-                if i == 1 {
-                    match cap.get(2).map(|m| m.as_str()) {
-                        None | Some("") => {
-                            if !cap[0].ends_with(&cap[1]) {
-                                return None;
-                            }
-                        }
-                        Some(ch) if ch.chars().next().is_some_and(|c| c.is_whitespace() || c == '、' || c == '.' || crate::dsl::is_cjk_ideograph(c)) => {}
-                        _ => return None,
-                    }
-                }
-                Some((i + 1, cap[1].to_string()))
-            });
+            // 说明：纯数字一级编号（“1”“1.”）与 cn_mixed 第三档（“1. 2. 3.”）形态相同，
+            // 无法在不看全文的情况下区分；上文已把带小数点的层级编号归入 arabic_decimal，
+            // 这里将裸 “N./N、” 归入 cn_mixed 计数，混用判定仍可通过其它档位发现。
             if let Some((inferred, num)) = matched_arabic {
                 arabic_counts[inferred - 1] += 1;
                 if self.check_level_match

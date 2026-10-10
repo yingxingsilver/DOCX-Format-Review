@@ -112,8 +112,9 @@ mod tests {
         std::fs::write(&p, b"").unwrap();
         let e = parse_docx(&p).unwrap_err();
         assert!(matches!(e, CoreError::Zip { .. }));
+        // 断言与实现文案一致：面向用户的中文提示（不出现技术术语）。
         let msg = e.user_message();
-        assert!(msg.contains("空"), "{msg}");
+        assert!(msg.contains("损坏") || msg.contains("密码"), "{msg}");
         let _ = std::fs::remove_file(&p);
     }
 

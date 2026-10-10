@@ -586,7 +586,8 @@ mod tests {
     #[test]
     fn abstract_length_counts_cjk_plus_latin_words() {
         assert_eq!(count_text("教育人工智能发展研究", &CountMode::CjkCharsPlusLatinWords), 10);
-        assert_eq!(count_text("AI 与 education 公平 2026", &CountMode::CjkCharsPlusLatinWords), 5); // AI+education+与+公平+2026
+        // AI(1) + 与(1) + education(1) + 公平(2) + 2026(1) = 6：每个汉字计 1，连续英文单词/数字串各计 1。
+        assert_eq!(count_text("AI 与 education 公平 2026", &CountMode::CjkCharsPlusLatinWords), 6);
         assert_eq!(strip_label_prefix("摘要：本文研究了……"), "本文研究了……");
     }
 
