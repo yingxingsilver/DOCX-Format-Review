@@ -1,0 +1,109 @@
+{
+  "name": "本科毕业论文格式规范（示例）",
+  "tolerance": {
+    "font_size_pt": 0.5,
+    "line_spacing_pt": 0.2
+  },
+  "rules": [
+    {
+      "id": "body-font-size",
+      "description": "正文字号应为小四（12 磅）",
+      "severity": "error",
+      "applies_to": { "kind": "all_body" },
+      "type": "font_size",
+      "expected_pt": 12.0
+    },
+    {
+      "id": "body-font-family",
+      "description": "中文正文应为宋体，西文应为 Times New Roman",
+      "severity": "error",
+      "applies_to": { "kind": "all_body" },
+      "type": "font_family",
+      "fonts": {
+        "east_asian": "宋体",
+        "ascii": "Times New Roman",
+        "allow_substitutes": ["SimSun", "新宋体"]
+      }
+    },
+    {
+      "id": "body-line-spacing",
+      "description": "正文行距应为固定值 20 磅",
+      "severity": "error",
+      "applies_to": { "kind": "all_body" },
+      "type": "line_spacing",
+      "rule": "exactly",
+      "expected_pt": 20.0
+    },
+    {
+      "id": "heading1-style",
+      "description": "一级标题应使用“标题 1”样式，三号黑体加粗",
+      "severity": "error",
+      "applies_to": { "kind": "heading_level", "value": 1 },
+      "type": "heading_style",
+      "expected": {
+        "level": 1,
+        "style": "Heading1",
+        "font_size_pt": 16.0,
+        "east_asian_font": "黑体",
+        "bold": true
+      }
+    },
+    {
+      "id": "heading1-bold",
+      "description": "一级标题必须加粗",
+      "severity": "error",
+      "applies_to": { "kind": "heading_level", "value": 1 },
+      "type": "bold",
+      "expected": true
+    },
+    {
+      "id": "margins",
+      "description": "页边距应为上下 2.54 厘米、左右 3.18 厘米",
+      "severity": "warning",
+      "applies_to": { "kind": "all_body" },
+      "type": "margin",
+      "margins": {
+        "left_pt": 90.0,
+        "right_pt": 90.0,
+        "top_pt": 72.0,
+        "bottom_pt": 72.0,
+        "tolerance_pt": 2.0
+      }
+    },
+    {
+      "id": "punctuation",
+      "description": "中文句子中不应出现英文标点",
+      "severity": "warning",
+      "applies_to": { "kind": "all_body" },
+      "type": "punctuation",
+      "spec": {
+        "forbidden": [",", ";", "!", "?"],
+        "note": "仅检查紧邻汉字的英文标点"
+      }
+    },
+    {
+      "id": "figure-caption",
+      "description": "图题应按“图章号-序号”编号并居中",
+      "severity": "error",
+      "applies_to": { "kind": "captions" },
+      "type": "caption_number",
+      "spec": {
+        "prefix": "图",
+        "numbering": "chapter-dash",
+        "require_centered": true
+      }
+    },
+    {
+      "id": "table-caption",
+      "description": "表题应按“表章号-序号”编号",
+      "severity": "error",
+      "applies_to": { "kind": "captions" },
+      "type": "caption_number",
+      "spec": {
+        "prefix": "表",
+        "numbering": "chapter-dash",
+        "require_centered": false
+      }
+    }
+  ]
+}

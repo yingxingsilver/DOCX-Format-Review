@@ -40,12 +40,30 @@ mod tests {
     #[test]
     fn all_modules_are_linked() {
         // 仅验证各模块均可访问，防止模块遗漏导出。
-        assert!(models::placeholder_ok());
         assert!(docx_parser::placeholder_ok());
         assert!(style_resolver::placeholder_ok());
         assert!(rules::placeholder_ok());
         assert!(audit::placeholder_ok());
         assert!(report::placeholder_ok());
-        assert!(error::placeholder_ok());
+        // P1：models 与 error 已有真实类型，用构造调用验证可访问。
+        let _ = models::Severity::Error.label_cn();
+        let _ = error::CoreError::rule_invalid("测试");
+    }
+
+    /// P1 验收：仓库内示例规则文件必须能被 RuleConfig 数据模型完整解析。
+    #[test]
+    fn shipped_default_rules_match_schema() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../rules/default.json");
+        let text = std::fs::read_to_string(path)
+            .unwrap_or_else(|e| panic!("无法读取 {path}: {e}"));
+        let cfg: models::RuleConfig = serde_json::from_str(&text)
+            .unwrap_or_else(|e| panic!("rules/default.json 不符合 RuleConfig 结构: {e}"));
+        assert_eq!(cfg.rules.len(), 9);
+        // ID 不得重复。
+        let mut ids: Vec<&str> = cfg.rules.iter().map(|r| r.id.as_str()).collect();
+        ids.sort_unstable();
+        let n = ids.len();
+        ids.dedup();
+        assert_eq!(ids.len(), n, "规则 ID 存在重复");
     }
 }
