@@ -599,7 +599,7 @@ mod tests {
         let ctx = AuditContext { document: &doc, config: &cfg, rule };
         let text250 = "研".repeat(250);
         assert!(c.check_paragraph(&ctx, &text_para(&format!("摘要：{text250}"), ParagraphRole::AbstractBody)).is_empty());
-        let vs = c.check_paragraph(&ctx, &text_para(format!("摘要：{}", "研".repeat(120)), ParagraphRole::AbstractBody));
+        let vs = c.check_paragraph(&ctx, &text_para(&format!("摘要：{}", "研".repeat(120)), ParagraphRole::AbstractBody));
         assert_eq!(vs.len(), 1);
         assert_eq!(vs[0].severity, Severity::Warning);
         assert!(vs[0].message.contains("不少于 200"));

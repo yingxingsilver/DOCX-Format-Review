@@ -28,13 +28,34 @@ use regex::Regex;
 pub struct CompiledChecker {
     pub rule: Rule,
     checker: Box<dyn crate::dsl::Checker>,
+    /// target.text_regex 在构建期编译一次，热路径零重编译（审查项：DoS/性能）。
+    text_regex: Option<Regex>,
 }
 
 impl CompiledChecker {
     /// 测试专用：注入自定义 Checker（验证引擎容错/调度逻辑）。
     #[cfg(test)]
     pub(crate) fn for_test(rule: Rule, checker: Box<dyn crate::dsl::Checker>) -> Self {
-        Self { rule, checker }
+        let text_regex = rule
+            .target
+            .as_ref()
+            .and_then(|t| t.text_regex.as_deref())
+            .and_then(|pat| Regex::new(pat).ok());
+        Self { rule, checker, text_regex }
+    }
+
+    /// 构建期编译 target 正则；非法正则在加载期已校验，此处失败按“不命中”处理并保留原文兜底。
+    pub(crate) fn new(rule: Rule, checker: Box<dyn crate::dsl::Checker>) -> Self {
+        let text_regex = rule
+            .target
+            .as_ref()
+            .and_then(|t| t.text_regex.as_deref())
+            .and_then(|pat| Regex::new(pat).ok());
+        Self { rule, checker, text_regex }
+    }
+
+    pub fn compiled_text_regex(&self) -> Option<&Regex> {
+        self.text_regex.as_ref()
     }
 
     pub fn rule_id(&self) -> &str {
@@ -137,7 +158,7 @@ pub fn build_checker(rule: &Rule, config: &RuleConfig) -> CoreResult<CompiledChe
             })
         }
     };
-    Ok(CompiledChecker { rule: rule.clone(), checker })
+    Ok(CompiledChecker::new(rule.clone(), checker))
 }
 
 /// 根据配置构建全部启用的检查器（跳过 enabled=false）。

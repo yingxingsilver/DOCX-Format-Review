@@ -52,14 +52,19 @@ mod tests {
         let _ = error::CoreError::RuleInvalid { reason: "测试".into() };
     }
 
-    /// P1 验收：仓库内示例规则文件必须能被 RuleConfig 数据模型完整解析。
-    /// 收尾项：audit 模块必须真实存在（引擎入口 + 批量接口）。
+    /// P5：audit 批量入口必须存在（进度回调 + 取消令牌 + AuditReport）。
     #[test]
     fn audit_engine_entry_points_exist() {
         let _: fn(&crate::dsl::ParsedDocument, &crate::dsl::RuleConfig) -> error::CoreResult<Vec<crate::dsl::Violation>> =
             audit::audit_document_with_config;
-        let _: fn(&std::path::Path, &crate::dsl::RuleConfig) -> Vec<crate::dsl::FileAuditSummary> =
-            |p, c| audit::audit_directory(p, c).unwrap_or_default();
+        let _: fn(
+            &std::path::Path,
+            &crate::dsl::RuleConfig,
+            (),
+            &audit::CancellationToken,
+        ) -> Vec<crate::dsl::FileAuditSummary> = |p, c, pr, t| {
+            audit::audit_directory(p, c, pr, t).unwrap().files
+        };
     }
 
     #[test]
