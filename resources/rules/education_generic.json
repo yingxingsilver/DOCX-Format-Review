@@ -1,0 +1,1143 @@
+{
+  "version": "1.0",
+  "name": "国内教育类论文通用格式审核规则（示例）",
+  "description": "基于常见国内教育类论文格式要求生成。硬约束为 error，建议项为 warning，可选或不确定项为 info/manual_review。",
+  "defaults": {
+    "tolerance": {
+      "font_size_pt": 0.5,
+      "line_spacing_pt": 0.2,
+      "line_spacing_multiple": 0.05,
+      "margin_cm": 0.1,
+      "indent_chars": 0.2,
+      "page_mm": 1.0
+    }
+  },
+  "font_size_aliases": {
+    "初号": 42.0,
+    "小初": 36.0,
+    "一号": 26.0,
+    "小一": 24.0,
+    "二号": 22.0,
+    "小二": 18.0,
+    "三号": 16.0,
+    "小三": 15.0,
+    "四号": 14.0,
+    "小四": 12.0,
+    "五号": 10.5,
+    "小五": 9.0,
+    "六号": 7.5,
+    "小六": 6.5,
+    "七号": 5.5,
+    "八号": 5.0
+  },
+  "target_inference": {
+    "heading_style_names": [
+      "Heading 1",
+      "Heading 2",
+      "Heading 3",
+      "标题 1",
+      "标题 2",
+      "标题 3",
+      "heading1",
+      "heading2",
+      "heading3"
+    ],
+    "title_style_names": [
+      "Title",
+      "标题"
+    ],
+    "abstract_labels": [
+      "摘要",
+      "摘 要",
+      "内容摘要",
+      "摘要：",
+      "摘 要："
+    ],
+    "keywords_labels": [
+      "关键词",
+      "关键字",
+      "关键词：",
+      "Keywords",
+      "Key words"
+    ],
+    "references_labels": [
+      "参考文献",
+      "References",
+      "引用文献"
+    ],
+    "appendix_labels": [
+      "附录",
+      "附 录",
+      "Appendix"
+    ],
+    "acknowledgement_labels": [
+      "致谢",
+      "谢 辞",
+      "Acknowledgements",
+      "Acknowledgment"
+    ],
+    "figure_caption_regex": "^\\s*图\\s*\\d+(?:[-—_.．]\\d+)?(?:\\s|[：:.]).*$",
+    "table_caption_regex": "^\\s*表\\s*\\d+(?:[-—_.．]\\d+)?(?:\\s|[：:.]).*$",
+    "reference_entry_regex": "^\\s*\\[\\d+\\]",
+    "in_text_citation_regex": "\\[(\\d{1,4}(?:[,，-]\\s*\\d{1,4})*)\\]"
+  },
+  "font_policy": {
+    "allowed_fonts": [
+      "宋体",
+      "SimSun",
+      "黑体",
+      "SimHei",
+      "楷体",
+      "KaiTi",
+      "Times New Roman",
+      "Arial",
+      "Calibri"
+    ],
+    "blocked_decorative_fonts": [
+      "华文彩云",
+      "方正舒体",
+      "幼圆",
+      "隶书",
+      "艺术字",
+      "华文行楷",
+      "华文琥珀",
+      "华文新魏"
+    ]
+  },
+  "profiles": {
+    "strict": {
+      "overrides": [
+        {
+          "id": "body-line-spacing",
+          "severity": "error"
+        },
+        {
+          "id": "body-first-line-indent",
+          "severity": "error"
+        },
+        {
+          "id": "structure-order",
+          "severity": "error"
+        },
+        {
+          "id": "keyword-count",
+          "severity": "error"
+        }
+      ],
+      "disabled": []
+    },
+    "normal": {
+      "overrides": [],
+      "disabled": []
+    },
+    "loose": {
+      "overrides": [],
+      "disabled": [
+        "cjk-latin-space",
+        "abstract-length",
+        "keyword-separator-style"
+      ]
+    }
+  },
+  "rules": [
+    {
+      "id": "page-a4",
+      "enabled": true,
+      "severity": "error",
+      "manual_review": false,
+      "message": "纸张应为 A4（210 × 297 mm）。",
+      "suggestion": "在 Word 中进入“布局 → 纸张大小”，选择 A4。",
+      "target": null,
+      "type": "page_size",
+      "expected": {
+        "width_mm": 210.0,
+        "height_mm": 297.0
+      }
+    },
+    {
+      "id": "page-margins",
+      "enabled": true,
+      "severity": "error",
+      "manual_review": false,
+      "message": "页边距应为：上 2.5 cm、下 2.5 cm、左 3.0 cm、右 2.5 cm。",
+      "suggestion": "在 Word 中进入“布局 → 页边距 → 自定义页边距”进行调整。",
+      "target": null,
+      "type": "page_margins",
+      "expected_cm": {
+        "top_cm": 2.5,
+        "bottom_cm": 2.5,
+        "left_cm": 3.0,
+        "right_cm": 2.5,
+        "header_cm": null,
+        "footer_cm": null,
+        "gutter_cm": null
+      }
+    },
+    {
+      "id": "page-number-body-start",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": true,
+      "message": "正文通常应从第 1 页开始编页码，页码建议居中或右下角。当前版本仅提示人工确认。",
+      "suggestion": "检查正文第一节是否重新从 1 开始编页码；页码位置是否符合学校要求。",
+      "target": null,
+      "type": "page_numbering",
+      "expected": {
+        "restart_at_body": true,
+        "start": 1,
+        "allowed_positions": [
+          "center",
+          "right_bottom"
+        ]
+      }
+    },
+    {
+      "id": "body-font-size",
+      "enabled": true,
+      "severity": "error",
+      "manual_review": false,
+      "message": "正文字号应为小四（12 pt）。",
+      "suggestion": "选中正文段落，将字号设置为小四（12 pt）。",
+      "target": {
+        "roles": [
+          "body"
+        ],
+        "level": null,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "run_font_size",
+      "expected_pt": 12.0,
+      "allowed_pt": null,
+      "range_pt": null,
+      "apply_to": "non_empty_runs"
+    },
+    {
+      "id": "body-cjk-font",
+      "enabled": true,
+      "severity": "error",
+      "manual_review": false,
+      "message": "中文正文应使用宋体。",
+      "suggestion": "选中中文正文，将中文字体设置为宋体。",
+      "target": {
+        "roles": [
+          "body"
+        ],
+        "level": null,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "run_font_family",
+      "text_class": "cjk",
+      "expected_fonts": [
+        "宋体",
+        "SimSun"
+      ],
+      "blocked_fonts": null
+    },
+    {
+      "id": "body-latin-font",
+      "enabled": true,
+      "severity": "error",
+      "manual_review": false,
+      "message": "英文和数字正文应使用 Times New Roman。",
+      "suggestion": "选中英文或数字，将西文字体设置为 Times New Roman。",
+      "target": {
+        "roles": [
+          "body"
+        ],
+        "level": null,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "run_font_family",
+      "text_class": "latin_or_digit",
+      "expected_fonts": [
+        "Times New Roman"
+      ],
+      "blocked_fonts": null
+    },
+    {
+      "id": "heading1-font",
+      "enabled": true,
+      "severity": "error",
+      "manual_review": false,
+      "message": "一级标题应使用黑体。",
+      "suggestion": "将一级标题字体设置为黑体。",
+      "target": {
+        "roles": [
+          "heading"
+        ],
+        "level": 1,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "run_font_family",
+      "text_class": "auto",
+      "expected_fonts": [
+        "黑体",
+        "SimHei"
+      ],
+      "blocked_fonts": null
+    },
+    {
+      "id": "heading1-size",
+      "enabled": true,
+      "severity": "error",
+      "manual_review": false,
+      "message": "一级标题字号应为三号（16 pt）或小三（15 pt）。",
+      "suggestion": "将一级标题字号设置为三号或小三。",
+      "target": {
+        "roles": [
+          "heading"
+        ],
+        "level": 1,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "run_font_size",
+      "expected_pt": null,
+      "allowed_pt": [
+        16.0,
+        15.0
+      ],
+      "range_pt": null,
+      "apply_to": "non_empty_runs"
+    },
+    {
+      "id": "heading1-align",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": false,
+      "message": "一级标题通常应居中。",
+      "suggestion": "将一级标题设置为居中对齐。",
+      "target": {
+        "roles": [
+          "heading"
+        ],
+        "level": 1,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "alignment",
+      "expected": "center"
+    },
+    {
+      "id": "heading2-font",
+      "enabled": true,
+      "severity": "error",
+      "manual_review": false,
+      "message": "二级标题应使用黑体。",
+      "suggestion": "将二级标题字体设置为黑体。",
+      "target": {
+        "roles": [
+          "heading"
+        ],
+        "level": 2,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "run_font_family",
+      "text_class": "auto",
+      "expected_fonts": [
+        "黑体",
+        "SimHei"
+      ],
+      "blocked_fonts": null
+    },
+    {
+      "id": "heading2-size",
+      "enabled": true,
+      "severity": "error",
+      "manual_review": false,
+      "message": "二级标题字号应为四号（14 pt）。",
+      "suggestion": "将二级标题字号设置为四号（14 pt）。",
+      "target": {
+        "roles": [
+          "heading"
+        ],
+        "level": 2,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "run_font_size",
+      "expected_pt": 14.0,
+      "allowed_pt": null,
+      "range_pt": null,
+      "apply_to": "non_empty_runs"
+    },
+    {
+      "id": "heading2-align",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": false,
+      "message": "二级标题通常应左对齐。",
+      "suggestion": "将二级标题设置为左对齐。",
+      "target": {
+        "roles": [
+          "heading"
+        ],
+        "level": 2,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "alignment",
+      "expected": "left"
+    },
+    {
+      "id": "heading3-font",
+      "enabled": true,
+      "severity": "error",
+      "manual_review": false,
+      "message": "三级标题应使用黑体。",
+      "suggestion": "将三级标题字体设置为黑体。",
+      "target": {
+        "roles": [
+          "heading"
+        ],
+        "level": 3,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "run_font_family",
+      "text_class": "auto",
+      "expected_fonts": [
+        "黑体",
+        "SimHei"
+      ],
+      "blocked_fonts": null
+    },
+    {
+      "id": "heading3-size",
+      "enabled": true,
+      "severity": "error",
+      "manual_review": false,
+      "message": "三级标题字号应为小四（12 pt）。",
+      "suggestion": "将三级标题字号设置为小四（12 pt）。",
+      "target": {
+        "roles": [
+          "heading"
+        ],
+        "level": 3,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "run_font_size",
+      "expected_pt": 12.0,
+      "allowed_pt": null,
+      "range_pt": null,
+      "apply_to": "non_empty_runs"
+    },
+    {
+      "id": "heading3-align",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": false,
+      "message": "三级标题通常应左对齐。",
+      "suggestion": "将三级标题设置为左对齐。",
+      "target": {
+        "roles": [
+          "heading"
+        ],
+        "level": 3,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "alignment",
+      "expected": "left"
+    },
+    {
+      "id": "abstract-keywords-font",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": false,
+      "message": "摘要和关键词正文建议使用宋体或楷体。",
+      "suggestion": "将摘要、关键词正文字体设置为宋体或楷体。",
+      "target": {
+        "roles": [
+          "abstract_body",
+          "keywords_body"
+        ],
+        "level": null,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "run_font_family",
+      "text_class": "auto",
+      "expected_fonts": [
+        "宋体",
+        "SimSun",
+        "楷体",
+        "KaiTi"
+      ],
+      "blocked_fonts": null
+    },
+    {
+      "id": "abstract-keywords-size",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": false,
+      "message": "摘要和关键词字号建议使用小四（12 pt）。",
+      "suggestion": "将摘要、关键词正文设置为小四（12 pt）。",
+      "target": {
+        "roles": [
+          "abstract_body",
+          "keywords_body"
+        ],
+        "level": null,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "run_font_size",
+      "expected_pt": 12.0,
+      "allowed_pt": null,
+      "range_pt": null,
+      "apply_to": "non_empty_runs"
+    },
+    {
+      "id": "references-font",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": false,
+      "message": "参考文献建议使用宋体。",
+      "suggestion": "将参考文献条目设置为宋体。",
+      "target": {
+        "roles": [
+          "reference_entry"
+        ],
+        "level": null,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "run_font_family",
+      "text_class": "auto",
+      "expected_fonts": [
+        "宋体",
+        "SimSun"
+      ],
+      "blocked_fonts": null
+    },
+    {
+      "id": "references-size",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": false,
+      "message": "参考文献字号建议使用五号（10.5 pt）。",
+      "suggestion": "将参考文献条目设置为五号（10.5 pt）。",
+      "target": {
+        "roles": [
+          "reference_entry"
+        ],
+        "level": null,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "run_font_size",
+      "expected_pt": 10.5,
+      "allowed_pt": null,
+      "range_pt": null,
+      "apply_to": "non_empty_runs"
+    },
+    {
+      "id": "figure-caption-font",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": false,
+      "message": "图题建议使用宋体或黑体。",
+      "suggestion": "将图题字体设置为宋体或黑体。",
+      "target": {
+        "roles": [
+          "figure_caption"
+        ],
+        "level": null,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "run_font_family",
+      "text_class": "auto",
+      "expected_fonts": [
+        "宋体",
+        "SimSun",
+        "黑体",
+        "SimHei"
+      ],
+      "blocked_fonts": null
+    },
+    {
+      "id": "figure-caption-size",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": false,
+      "message": "图题字号建议使用五号（10.5 pt）。",
+      "suggestion": "将图题设置为五号（10.5 pt）。",
+      "target": {
+        "roles": [
+          "figure_caption"
+        ],
+        "level": null,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "run_font_size",
+      "expected_pt": 10.5,
+      "allowed_pt": null,
+      "range_pt": null,
+      "apply_to": "non_empty_runs"
+    },
+    {
+      "id": "table-caption-font",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": false,
+      "message": "表题建议使用宋体或黑体。",
+      "suggestion": "将表题字体设置为宋体或黑体。",
+      "target": {
+        "roles": [
+          "table_caption"
+        ],
+        "level": null,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "run_font_family",
+      "text_class": "auto",
+      "expected_fonts": [
+        "宋体",
+        "SimSun",
+        "黑体",
+        "SimHei"
+      ],
+      "blocked_fonts": null
+    },
+    {
+      "id": "table-caption-size",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": false,
+      "message": "表题字号建议使用五号（10.5 pt）。",
+      "suggestion": "将表题设置为五号（10.5 pt）。",
+      "target": {
+        "roles": [
+          "table_caption"
+        ],
+        "level": null,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "run_font_size",
+      "expected_pt": 10.5,
+      "allowed_pt": null,
+      "range_pt": null,
+      "apply_to": "non_empty_runs"
+    },
+    {
+      "id": "table-text-size",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": false,
+      "message": "表格内文字建议使用五号（10.5 pt）或小五（9 pt）。",
+      "suggestion": "将表格内文字设置为五号或小五。",
+      "target": {
+        "roles": [
+          "table_text"
+        ],
+        "level": null,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "run_font_size",
+      "expected_pt": null,
+      "allowed_pt": [
+        10.5,
+        9.0
+      ],
+      "range_pt": null,
+      "apply_to": "non_empty_runs"
+    },
+    {
+      "id": "body-line-spacing",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": false,
+      "message": "正文行距建议为 1.5 倍行距，或固定值 20–22 磅。",
+      "suggestion": "选中正文段落，在“段落 → 行距”中设置为 1.5 倍行距或固定值 20–22 磅。",
+      "target": {
+        "roles": [
+          "body"
+        ],
+        "level": null,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "line_spacing",
+      "allowed": [
+        {
+          "rule": "multiple",
+          "factor": 1.5,
+          "min_points": null,
+          "max_points": null
+        },
+        {
+          "rule": "exact",
+          "factor": null,
+          "min_points": 20.0,
+          "max_points": 22.0
+        }
+      ]
+    },
+    {
+      "id": "heading-line-spacing",
+      "enabled": true,
+      "severity": "info",
+      "manual_review": false,
+      "message": "标题行距建议使用单倍行距或 1.5 倍行距。",
+      "suggestion": "选中标题，将行距设置为单倍行距或 1.5 倍行距。",
+      "target": {
+        "roles": [
+          "heading"
+        ],
+        "level": null,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "line_spacing",
+      "allowed": [
+        {
+          "rule": "multiple",
+          "factor": 1.0,
+          "min_points": null,
+          "max_points": null
+        },
+        {
+          "rule": "multiple",
+          "factor": 1.5,
+          "min_points": null,
+          "max_points": null
+        }
+      ]
+    },
+    {
+      "id": "body-first-line-indent",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": false,
+      "message": "中文正文段落建议首行缩进 2 字符。",
+      "suggestion": "选中正文段落，在“段落 → 特殊格式”中选择“首行缩进 2 字符”。",
+      "target": {
+        "roles": [
+          "body"
+        ],
+        "level": null,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "indent",
+      "first_line_chars": 2.0,
+      "hanging_chars": null,
+      "left_chars": null
+    },
+    {
+      "id": "reference-hanging-indent",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": false,
+      "message": "参考文献条目建议使用悬挂缩进 2 字符。",
+      "suggestion": "选中参考文献条目，在“段落 → 特殊格式”中选择“悬挂缩进 2 字符”。",
+      "target": {
+        "roles": [
+          "reference_entry"
+        ],
+        "level": null,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "indent",
+      "first_line_chars": null,
+      "hanging_chars": 2.0,
+      "left_chars": null
+    },
+    {
+      "id": "structure-order",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": true,
+      "message": "论文结构顺序建议为：题目、作者姓名、单位城市邮编、摘要、关键词、正文、参考文献、附录/致谢（如有）。",
+      "suggestion": "检查各部分是否按常见顺序排列。若学校有特殊要求，请以学校通知为准。",
+      "target": null,
+      "type": "sequence",
+      "strict": false,
+      "anchors": [
+        {
+          "id": "title",
+          "labels": [],
+          "roles": [
+            "title"
+          ],
+          "regex": null,
+          "optional": false
+        },
+        {
+          "id": "author",
+          "labels": [],
+          "roles": [
+            "author"
+          ],
+          "regex": null,
+          "optional": true
+        },
+        {
+          "id": "affiliation",
+          "labels": [],
+          "roles": [
+            "affiliation"
+          ],
+          "regex": null,
+          "optional": true
+        },
+        {
+          "id": "abstract",
+          "labels": [
+            "摘要",
+            "摘 要",
+            "内容摘要"
+          ],
+          "roles": [
+            "abstract_label",
+            "abstract_body"
+          ],
+          "regex": null,
+          "optional": false
+        },
+        {
+          "id": "keywords",
+          "labels": [
+            "关键词",
+            "关键字"
+          ],
+          "roles": [
+            "keywords_label",
+            "keywords_body"
+          ],
+          "regex": null,
+          "optional": false
+        },
+        {
+          "id": "body",
+          "labels": [],
+          "roles": [
+            "heading",
+            "body"
+          ],
+          "regex": null,
+          "optional": false
+        },
+        {
+          "id": "references",
+          "labels": [
+            "参考文献"
+          ],
+          "roles": [
+            "reference_label",
+            "reference_entry"
+          ],
+          "regex": null,
+          "optional": false
+        },
+        {
+          "id": "appendix",
+          "labels": [
+            "附录"
+          ],
+          "roles": [
+            "appendix_label"
+          ],
+          "regex": null,
+          "optional": true
+        },
+        {
+          "id": "acknowledgement",
+          "labels": [
+            "致谢"
+          ],
+          "roles": [
+            "acknowledgement_label"
+          ],
+          "regex": null,
+          "optional": true
+        }
+      ]
+    },
+    {
+      "id": "abstract-length",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": false,
+      "message": "摘要字数建议在 200–300 字之间。",
+      "suggestion": "适当精简或补充摘要内容，使其控制在 200–300 字左右。",
+      "target": {
+        "roles": [
+          "abstract_body"
+        ],
+        "level": null,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "text_length",
+      "min": 200,
+      "max": 300,
+      "count_mode": "cjk_chars_plus_latin_words"
+    },
+    {
+      "id": "keyword-count",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": false,
+      "message": "关键词数量建议为 3–5 个。",
+      "suggestion": "将关键词调整为 3–5 个。",
+      "target": {
+        "roles": [
+          "keywords_body"
+        ],
+        "level": null,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "keyword_list",
+      "min_count": 3,
+      "max_count": 5,
+      "separators": [
+        "；",
+        ";"
+      ],
+      "allow_trailing_separator": false
+    },
+    {
+      "id": "keyword-separator-style",
+      "enabled": true,
+      "severity": "info",
+      "manual_review": false,
+      "message": "关键词之间建议使用分号隔开，例如：教育公平；基础教育；课程改革。",
+      "suggestion": "将关键词之间的逗号、顿号等统一改为分号。",
+      "target": {
+        "roles": [
+          "keywords_body"
+        ],
+        "level": null,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "keyword_list",
+      "min_count": 0,
+      "max_count": 99,
+      "separators": [
+        "；",
+        ";"
+      ],
+      "allow_trailing_separator": false
+    },
+    {
+      "id": "heading-numbering",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": true,
+      "message": "正文标题编号建议统一使用一种体系：一、（一）、1.、（1）；或 1、1.1、1.1.1。",
+      "suggestion": "检查各级标题编号是否混用两种体系，并统一为学校要求的格式。",
+      "target": {
+        "roles": [
+          "heading"
+        ],
+        "level": null,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "heading_numbering",
+      "allowed_schemes": [
+        "cn_mixed",
+        "arabic_decimal"
+      ],
+      "require_consistent": true,
+      "check_level_match": true
+    },
+    {
+      "id": "figure-caption",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": true,
+      "message": "图题应位于图片下方、居中，编号应连续，如“图1”。",
+      "suggestion": "检查图题是否在图片下方并居中；图编号是否从 1 开始连续。",
+      "target": null,
+      "type": "caption",
+      "caption_kind": "figure",
+      "pattern": "^\\s*图\\s*\\d+(?:[-—_.．]\\d+)?(?:\\s|[：:.]).*$",
+      "expected_alignment": "center",
+      "expected_position": "below_object",
+      "numbering": {
+        "start": 1,
+        "continuous": true,
+        "allow_chapter_prefix": true
+      }
+    },
+    {
+      "id": "table-caption",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": true,
+      "message": "表题应位于表格上方、居中，编号应连续，如“表2”。",
+      "suggestion": "检查表题是否在表格上方并居中；表编号是否从 1 开始连续。",
+      "target": null,
+      "type": "caption",
+      "caption_kind": "table",
+      "pattern": "^\\s*表\\s*\\d+(?:[-—_.．]\\d+)?(?:\\s|[：:.]).*$",
+      "expected_alignment": "center",
+      "expected_position": "above_object",
+      "numbering": {
+        "start": 1,
+        "continuous": true,
+        "allow_chapter_prefix": true
+      }
+    },
+    {
+      "id": "reference-list",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": true,
+      "message": "参考文献应按文中出现顺序编号，并采用 GB/T 7714 常见格式，如 [J]、[M]、[D]、[EB/OL]。",
+      "suggestion": "检查参考文献是否从 [1] 开始连续编号，并包含文献类型标识。",
+      "target": null,
+      "type": "reference_list",
+      "entry_pattern": "^\\s*\\[\\d+\\]",
+      "required_type_tags": [
+        "[J]",
+        "[M]",
+        "[D]",
+        "[EB/OL]",
+        "[C]",
+        "[N]"
+      ],
+      "check_continuous": true,
+      "check_cited": true
+    },
+    {
+      "id": "citation-order",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": true,
+      "message": "正文中的参考文献引用编号建议按出现顺序递增，并与文末参考文献对应。",
+      "suggestion": "检查正文 [1]、[2] 等引用是否按顺序出现，文末是否有对应条目。",
+      "target": null,
+      "type": "citation_order",
+      "require_ascending": true,
+      "allow_repeated": true
+    },
+    {
+      "id": "punctuation-consistency",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": false,
+      "message": "中文语境中建议使用中文标点，避免中英文标点混用。",
+      "suggestion": "将中文句子中的英文逗号、英文句号、英文分号等改为中文标点。参考文献、网址、DOI 除外。",
+      "target": {
+        "roles": [
+          "body",
+          "abstract_body",
+          "keywords_body",
+          "heading"
+        ],
+        "level": null,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "punctuation",
+      "mode": "prefer_fullwidth_in_cjk",
+      "exceptions": [
+        "参考文献",
+        "http",
+        "https",
+        "doi",
+        "[J]",
+        "[M]",
+        "[D]",
+        "[EB/OL]"
+      ]
+    },
+    {
+      "id": "cjk-latin-space",
+      "enabled": false,
+      "severity": "info",
+      "manual_review": false,
+      "message": "中文与英文、数字之间可留半角空格，这一项默认不作为问题。",
+      "suggestion": "如学校要求统一排版，可在中文与英文/数字之间添加半角空格。",
+      "target": {
+        "roles": [
+          "body",
+          "abstract_body",
+          "keywords_body"
+        ],
+        "level": null,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "cjk_latin_spacing",
+      "mode": "recommend"
+    },
+    {
+      "id": "decorative-font-block",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": false,
+      "message": "学术论文不建议使用过多装饰性字体。",
+      "suggestion": "将装饰性字体改为宋体、黑体、楷体或 Times New Roman 等常规字体。",
+      "target": {
+        "roles": [],
+        "level": null,
+        "exclude_roles": [],
+        "tags": [],
+        "text_regex": null
+      },
+      "type": "font_allow_list",
+      "mode": "blocklist",
+      "allowed_fonts": null,
+      "blocked_fonts": [
+        "华文彩云",
+        "方正舒体",
+        "幼圆",
+        "隶书",
+        "艺术字",
+        "华文行楷",
+        "华文琥珀",
+        "华文新魏"
+      ]
+    }
+  ]
+}
