@@ -55,6 +55,28 @@ pub struct SequenceChecker {
     pub anchor_regexes: Vec<Option<Regex>>,
 }
 
+/// 锚点面向用户的中文名称：优先 labels 首个，其次按已知 id 映射，最后回退原 id。
+fn anchor_display_name(a: &SequenceAnchor) -> String {
+    if let Some(first) = a.labels.first() {
+        return first.trim_end_matches(['：', ':']).to_string();
+    }
+    match a.id.as_str() {
+        "title" => "标题",
+        "author" => "作者",
+        "affiliation" => "作者单位",
+        "abstract" | "abstract_cn" => "摘要",
+        "abstract_en" => "英文摘要",
+        "keywords" | "keywords_cn" => "关键词",
+        "keywords_en" => "英文关键词",
+        "toc" => "目录",
+        "body" => "正文",
+        "references" => "参考文献",
+        "acknowledgements" => "致谢",
+        _ => return a.id.clone(),
+    }
+    .to_string()
+}
+
 impl Checker for SequenceChecker {
     fn rule_id(&self) -> &str {
         ""
@@ -84,7 +106,10 @@ impl Checker for SequenceChecker {
                             ctx.rule,
                             &ctx.document.path,
                             Default::default(),
-                            format!("没有识别到“{}”部分，请人工确认论文结构。", self.anchors[i].id),
+                            format!(
+                                "没有识别到“{}”部分，请人工确认论文结构。",
+                                anchor_display_name(&self.anchors[i])
+                            ),
                             Some("包含全部必需章节".into()),
                             Some(format!("缺少 {}", self.anchors[i].id)),
                             None,
@@ -156,26 +181,32 @@ fn cn_num_to_u32(s: &str) -> Option<u32> {
     }
 }
 
-thread_local! {
-    static CN_MIXED_RES: [Regex; 4] = [
-        Regex::new(r"^([一二三四五六七八九十]{1,3})、").unwrap(),
-        Regex::new(r"^（([一二三四五六七八九十]{1,3})）").unwrap(),
-        Regex::new(r"^(\d{1,3})[\.、]").unwrap(),
-        Regex::new(r"^（(\d{1,3})）").unwrap(),
-    ];
-    static ARABIC_RES: [Regex; 3] = [
-        Regex::new(r"^(\d{1,2}(?:\.\d{1,2}){2})(?:\.)?[\s、.]").unwrap(),
-        Regex::new(r"^(\d{1,2}\.\d{1,2})(?:\.)?[\s、.]").unwrap(),
-        Regex::new(r"^(\d{1,2})(?:\.)?[\s、.]").unwrap(),
-    ];
-}
-
 /// heading_numbering：识别标题编号体系并检查混用/层级错配。
 /// 只做正则与层级模式匹配，不理解语义。
 pub struct HeadingNumberingChecker {
     pub allowed_schemes: Vec<String>,
     pub require_consistent: bool,
     pub check_level_match: bool,
+    /// 构建期编译一次（审查项：避免每段落 thread_local 惰性重编译与 TLS 开销）。
+    pub cn_res: [Regex; 4],
+    pub arabic_res: [Regex; 3],
+}
+
+/// 兜底正则（规则未显式提供时使用）；非法 pattern 一律回退到默认值，不 panic。
+pub fn heading_default_regexes() -> ([Regex; 4], [Regex; 3]) {
+    let cn = [
+        Regex::new(r"^([一二三四五六七八九十]{1,3})、").unwrap(),
+        Regex::new(r"^（([一二三四五六七八九十]{1,3})）").unwrap(),
+        Regex::new(r"^(\d{1,3})[\.、]").unwrap(),
+        Regex::new(r"^（(\d{1,3})）").unwrap(),
+    ];
+    let ar = [
+        Regex::new(r"^(\d{1,2}(?:\.\d{1,2}){2})(?:\.)?[\s、.]").unwrap(),
+        // 二级“1.1”后可能直接跟中文标题文字：分隔符可选，再用捕获组首字符类别复核（regex crate 不支持前瞻）。
+        Regex::new(r"^(\d{1,2}\.\d{1,2})(?:\.)?([\s、.]|[\u{4e00}-\u{9fff}]?)").unwrap(),
+        Regex::new(r"^(\d{1,2})(?:\.)?[\s、.]").unwrap(),
+    ];
+    (cn, ar)
 }
 
 impl Checker for HeadingNumberingChecker {
@@ -192,31 +223,38 @@ impl Checker for HeadingNumberingChecker {
         for p in &ctx.document.paragraphs {
             let Some(level) = p.role.heading_level() else { continue };
             let text = p.text.trim_start();
-            let matched_cn = CN_MIXED_RES.with(|res| {
-                if res[0].captures(text).is_some_and(|c| cn_num_to_u32(&c[1]).is_some()) {
-                    Some(1usize)
-                } else if res[1].captures(text).is_some_and(|c| cn_num_to_u32(&c[1]).is_some()) {
-                    Some(2)
-                } else if res[2].captures(text).is_some() {
-                    Some(3)
-                } else if res[3].captures(text).is_some() {
-                    Some(4)
-                } else {
-                    None
-                }
-            });
+            let res = &self.cn_res;
+            let matched_cn = if res[0].captures(text).is_some_and(|c| cn_num_to_u32(&c[1]).is_some()) {
+                Some(1usize)
+            } else if res[1].captures(text).is_some_and(|c| cn_num_to_u32(&c[1]).is_some()) {
+                Some(2)
+            } else if res[2].captures(text).is_some() {
+                Some(3)
+            } else if res[3].captures(text).is_some() {
+                Some(4)
+            } else {
+                None
+            };
             if let Some(slot) = matched_cn {
                 cn_counts[slot - 1] += 1;
                 continue;
             }
             // 阿拉伯小数体系：层级 = 段数（1 → 一级，1.1 → 二级，1.1.1 → 三级）。
-            let matched_arabic = ARABIC_RES.with(|res| {
-                for (i, re) in res.iter().enumerate() {
-                    if let Some(cap) = re.captures(text) {
-                        return Some((i + 1, cap[1].to_string()));
+            let matched_arabic = self.arabic_res.iter().enumerate().find_map(|(i, re)| {
+                let cap = re.captures(text)?;
+                // 二级模式的第 2 捕获组必须为分隔符或汉字（或直接结尾），避免 "2.1.3" 被误判为二级。
+                if i == 1 {
+                    match cap.get(2).map(|m| m.as_str()) {
+                        None | Some("") => {
+                            if !cap[0].ends_with(&cap[1]) {
+                                return None;
+                            }
+                        }
+                        Some(ch) if ch.chars().next().is_some_and(|c| c.is_whitespace() || c == '、' || c == '.' || crate::dsl::is_cjk_ideograph(c)) => {}
+                        _ => return None,
                     }
                 }
-                None
+                Some((i + 1, cap[1].to_string()))
             });
             if let Some((inferred, num)) = matched_arabic {
                 arabic_counts[inferred - 1] += 1;
@@ -512,10 +550,13 @@ mod tests {
     #[test]
     fn heading_scheme_detects_cn_and_arabic_mix() {
         let r = test_rule();
+        let (cn_res, arabic_res) = heading_default_regexes();
         let c = HeadingNumberingChecker {
             allowed_schemes: vec!["cn_mixed".into(), "arabic_decimal".into()],
             require_consistent: true,
             check_level_match: false,
+            cn_res,
+            arabic_res,
         };
         let mut doc = empty_doc();
         doc.paragraphs = vec![
@@ -533,10 +574,13 @@ mod tests {
     #[test]
     fn heading_scheme_pure_cn_passes() {
         let r = test_rule();
+        let (cn_res, arabic_res) = heading_default_regexes();
         let c = HeadingNumberingChecker {
             allowed_schemes: vec!["cn_mixed".into()],
             require_consistent: true,
             check_level_match: true,
+            cn_res,
+            arabic_res,
         };
         let mut doc = empty_doc();
         doc.paragraphs = vec![
