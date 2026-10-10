@@ -16,7 +16,9 @@
 //! - [`error`]         统一错误类型
 
 pub mod audit;
+pub mod checkers;
 pub mod docx_parser;
+pub mod dsl;
 pub mod error;
 pub mod models;
 pub mod report;
@@ -47,10 +49,19 @@ mod tests {
         assert!(report::placeholder_ok());
         // P1：models 与 error 已有真实类型，用构造调用验证可访问。
         let _ = models::Severity::Error.label_cn();
-        let _ = error::CoreError::rule_invalid("测试");
+        let _ = error::CoreError::RuleInvalid { reason: "测试".into() };
     }
 
     /// P1 验收：仓库内示例规则文件必须能被 RuleConfig 数据模型完整解析。
+    /// 收尾项：audit 模块必须真实存在（引擎入口 + 批量接口）。
+    #[test]
+    fn audit_engine_entry_points_exist() {
+        let _: fn(&crate::dsl::ParsedDocument, &crate::dsl::RuleConfig) -> error::CoreResult<Vec<crate::dsl::Violation>> =
+            audit::audit_document_with_config;
+        let _: fn(&std::path::Path, &crate::dsl::RuleConfig) -> Vec<crate::dsl::FileAuditSummary> =
+            |p, c| audit::audit_directory(p, c).unwrap_or_default();
+    }
+
     #[test]
     fn shipped_default_rules_match_schema() {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../rules/default.json");

@@ -10,6 +10,7 @@ regex = "1.13.1"
 serde = { workspace = true }
 serde_json.workspace = true
 thiserror = { workspace = true }
+rayon = { workspace = true }
 # P2 起启用：zip / quick-xml；P3 起启用：serde_json / serde_yaml；P4 起启用：rayon
 
 [dev-dependencies]

@@ -11,6 +11,11 @@ use regex::Regex;
 use crate::dsl::{Rule, RuleConfig};
 use crate::error::{CoreError, CoreResult};
 
+/// 骨架自检占位（保持与 lib.rs 模块链接测试兼容）。
+pub fn placeholder_ok() -> bool {
+    true
+}
+
 /// 支持的审核力度预设。
 pub const KNOWN_PROFILES: [&str; 3] = ["strict", "normal", "loose"];
 
