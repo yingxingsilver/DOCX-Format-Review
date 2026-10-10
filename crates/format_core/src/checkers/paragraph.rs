@@ -479,6 +479,13 @@ mod tests {
         p
     }
 
+    /// 以整段文本构造单 run 段落（text_length / keyword_list 等按 p.text 检查）。
+    fn text_para(text: &str, role: ParagraphRole) -> Paragraph {
+        let mut p = para(vec![run_with(text, 0, Some(12.0), None, None)], role);
+        p.text = text.into();
+        p
+    }
+
     #[test]
     fn line_spacing_multiple_and_exact_pass_wide_fails() {
         let cfg = config_from_json(include_str!("../../../../resources/rules/education_generic.json"));
@@ -591,8 +598,8 @@ mod tests {
         let doc = empty_doc();
         let ctx = AuditContext { document: &doc, config: &cfg, rule };
         let text250 = "研".repeat(250);
-        assert!(c.check_paragraph(&ctx, &para(&format!("摘要：{text250}"), ParagraphRole::AbstractBody)).is_empty());
-        let vs = c.check_paragraph(&ctx, &para(format!("摘要：{}", "研".repeat(120)), ParagraphRole::AbstractBody));
+        assert!(c.check_paragraph(&ctx, &text_para(&format!("摘要：{text250}"), ParagraphRole::AbstractBody)).is_empty());
+        let vs = c.check_paragraph(&ctx, &text_para(format!("摘要：{}", "研".repeat(120)), ParagraphRole::AbstractBody));
         assert_eq!(vs.len(), 1);
         assert_eq!(vs[0].severity, Severity::Warning);
         assert!(vs[0].message.contains("不少于 200"));
@@ -605,11 +612,11 @@ mod tests {
         let c = crate::checkers::build_checker(rule, &cfg).unwrap();
         let doc = empty_doc();
         let ctx = AuditContext { document: &doc, config: &cfg, rule };
-        assert!(c.check_paragraph(&ctx, &para("关键词：教育公平；政策分析；实证研究", ParagraphRole::KeywordsBody)).is_empty());
-        let vs = c.check_paragraph(&ctx, &para("关键词：教育公平；政策分析", ParagraphRole::KeywordsBody));
+        assert!(c.check_paragraph(&ctx, &text_para("关键词：教育公平；政策分析；实证研究", ParagraphRole::KeywordsBody)).is_empty());
+        let vs = c.check_paragraph(&ctx, &text_para("关键词：教育公平；政策分析", ParagraphRole::KeywordsBody));
         assert_eq!(vs.len(), 1);
         assert!(vs[0].message.contains("当前识别到 2 个"));
-        let vs = c.check_paragraph(&ctx, &para("关键词：A；B；C；D；E；F", ParagraphRole::KeywordsBody));
+        let vs = c.check_paragraph(&ctx, &text_para("关键词：A；B；C；D；E；F", ParagraphRole::KeywordsBody));
         assert_eq!(vs.len(), 1);
         assert!(vs[0].message.contains("当前识别到 6 个"));
     }
@@ -621,7 +628,7 @@ mod tests {
         let c = crate::checkers::build_checker(rule, &cfg).unwrap();
         let doc = empty_doc();
         let ctx = AuditContext { document: &doc, config: &cfg, rule };
-        let vs = c.check_paragraph(&ctx, &para("关键词：教育公平；政策分析；实证研究；", ParagraphRole::KeywordsBody));
+        let vs = c.check_paragraph(&ctx, &text_para("关键词：教育公平；政策分析；实证研究；", ParagraphRole::KeywordsBody));
         assert_eq!(vs.len(), 1);
         assert_eq!(vs[0].severity, Severity::Info);
         assert!(vs[0].message.contains("末尾"));
