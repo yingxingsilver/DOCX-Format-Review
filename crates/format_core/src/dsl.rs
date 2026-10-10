@@ -661,7 +661,7 @@ pub fn within(value: f64, target: f64, tol: f64) -> bool {
     value.is_finite() && target.is_finite() && (value - target).abs() <= tol
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RuleDefaults {
     #[serde(default)]
     pub tolerance: Tolerance,

@@ -158,21 +158,21 @@ fn dedupe_by_paragraph_rule(vs: Vec<Violation>) -> Vec<Violation> {
 /// 稳定排序：file_path → page_hint（None 最后）→ paragraph_index → rule_id。
 pub fn sort_violations(vs: &mut [Violation]) {
     vs.sort_by(|a, b| {
+        let page_ord = a
+            .location
+            .page_hint
+            .unwrap_or(u32::MAX)
+            .cmp(&b.location.page_hint.unwrap_or(u32::MAX));
+        let para_ord = a
+            .location
+            .paragraph_index
+            .unwrap_or(usize::MAX)
+            .cmp(&b.location.paragraph_index.unwrap_or(usize::MAX));
         a.file_path
             .cmp(&b.file_path)
-            .then(
-                a.location
-                    .page_hint
-                    .unwrap_or(u32::MAX)
-                    .cmp(&b.location.page_hint.unwrap_or(u32::MAX)),
-            )
-            .then(
-                a.location
-                    .paragraph_index
-                    .unwrap_or(usize::MAX)
-                    .cmp(&b.location.paragraph_index.unwrap_or(usize::MAX)),
-            )
-            .then(a.rule_id.cmp(&b.rule_id)),
+            .then(page_ord)
+            .then(para_ord)
+            .then_with(|| a.rule_id.cmp(&b.rule_id))
     });
 }
 

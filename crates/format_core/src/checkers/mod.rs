@@ -20,11 +20,7 @@ pub mod reference;
 pub mod structure;
 pub mod typography;
 
-use crate::dsl::{
-    Alignment, CaptionKind, CountMode, FontListMode, Indent, Location, Margins, PageSize,
-    Paragraph, PunctuationMode, RangeF64, Rule, RuleConfig, RuleKind, Severity, SpacingMode,
-    TargetSpec, TextClassFilter, Violation,
-};
+use crate::dsl::{Location, Paragraph, Rule, RuleConfig, RuleKind, Severity, TargetSpec, Violation};
 use crate::error::{CoreError, CoreResult};
 use regex::Regex;
 
@@ -205,6 +201,16 @@ pub(crate) fn manual_hint(rule: &Rule, doc_path: &std::path::Path, location: Loc
     v.severity = Severity::Info;
     v.requires_manual_review = true;
     v
+}
+
+/// 从段落提取违规位置信息（全局段落号 + 页码估算）。
+pub(crate) fn loc_of(p: &Paragraph) -> Location {
+    Location {
+        paragraph_index: Some(p.global_index),
+        run_index: None,
+        page_hint: p.page_hint,
+        ..Default::default()
+    }
 }
 
 /// 截断文本片段用于 excerpt（默认 40 字符）。
