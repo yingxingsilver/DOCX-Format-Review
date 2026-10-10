@@ -6,7 +6,9 @@ license.workspace = true
 description = "论文 DOCX 格式审核核心引擎（不依赖 Tauri，运行时不使用 LLM）"
 
 [dependencies]
+regex = "1.13.1"
 serde = { workspace = true }
+serde_json.workspace = true
 thiserror = { workspace = true }
 # P2 起启用：zip / quick-xml；P3 起启用：serde_json / serde_yaml；P4 起启用：rayon
 
