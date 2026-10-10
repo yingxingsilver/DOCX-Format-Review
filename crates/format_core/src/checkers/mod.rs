@@ -35,6 +35,12 @@ pub struct CompiledChecker {
 }
 
 impl CompiledChecker {
+    /// 测试专用：注入自定义 Checker（验证引擎容错/调度逻辑）。
+    #[cfg(test)]
+    pub(crate) fn for_test(rule: Rule, checker: Box<dyn crate::dsl::Checker>) -> Self {
+        Self { rule, checker }
+    }
+
     pub fn rule_id(&self) -> &str {
         self.rule.id.as_str()
     }

@@ -898,6 +898,26 @@ impl RuleKind {
     }
 }
 
+impl Rule {
+    /// 本规则的长度下限（text_length / keyword_list），其余为 0。
+    pub fn kind_min(&self) -> usize {
+        match &self.kind {
+            RuleKind::TextLength { min, .. } => *min,
+            RuleKind::KeywordList { min_count, .. } => *min_count,
+            _ => 0,
+        }
+    }
+
+    /// 本规则的长度上限（text_length / keyword_list），其余为 0。
+    pub fn kind_max(&self) -> usize {
+        match &self.kind {
+            RuleKind::TextLength { max, .. } => *max,
+            RuleKind::KeywordList { max_count, .. } => *max_count,
+            _ => 0,
+        }
+    }
+}
+
 impl RuleKind {
     /// 文档级规则（一次扫描整篇文档）；其余为段落级规则。
     pub fn is_document_level(&self) -> bool {
