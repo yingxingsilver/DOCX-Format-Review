@@ -3,8 +3,6 @@
 //! 运行：`cargo run -p format_core --example gen_report`
 //! 产物：系统临时目录下的 report_demo.html / report_demo.csv
 
-
-
 fn main() {
     let dir = std::env::temp_dir().join("format-core-report-demo");
     std::fs::create_dir_all(&dir).expect("创建演示输出目录失败");

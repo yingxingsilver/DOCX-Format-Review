@@ -164,7 +164,7 @@ mod tests {
     fn user_message_is_chinese_and_free_of_technical_terms() {
         let e = CoreError::Zip {
             note: String::new(),
-            source: Box::new(std::io::Error::new(std::io::ErrorKind::Other, "bad zip")),
+            source: Box::new(std::io::Error::other("bad zip")),
         };
         let msg = e.user_message();
         assert!(msg.contains("Word 文档"));
@@ -178,8 +178,7 @@ mod tests {
         // 用非字面量构造非法正则，避免 clippy 在编译期直接拒绝该模式。
         let bad_pattern = String::from("((");
         let re = regex::Regex::new(&bad_pattern)
-            .err()
-            .expect("非法正则应返回错误");
+            .expect_err("非法正则应返回错误");
         let e = CoreError::InvalidRegex {
             rule_id: "figure-caption".into(),
             source: re,
