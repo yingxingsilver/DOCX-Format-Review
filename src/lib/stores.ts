@@ -26,6 +26,8 @@ export const files = writable<FileMeta[]>([]);
 export const jobId = writable<string | null>(null);
 export const status = writable<AuditRunStatus>("idle");
 export const progress = writable<{ completed: number; total: number }>({ completed: 0, total: 0 });
+/** 当前正在处理的文件名（P8C ProgressPanel；由 audit://progress 的 current_file 派生）。 */
+export const currentFileName = writable<string | null>(null);
 export const logs = writable<string[]>([]);
 export const summary = writable<AuditReport | null>(null);
 export const selectedFile = writable<string | null>(null);
@@ -91,6 +93,9 @@ async function ensureEventSubscriptions(): Promise<void> {
       // 丢弃过期任务的进度事件（上一轮 done 后、新一轮 start 前的迟到包）。
       if (get(jobId) !== p.job_id) return;
       progress.set({ completed: p.completed, total: p.total });
+      // P8C ProgressPanel 需要展示当前文件名；后端 current_file 为完整路径，取文件名。
+      const name = p.current_file.split(/[\\/]/).filter(Boolean).pop() ?? p.current_file;
+      currentFileName.set(name || null);
     }),
     api.onAuditLog((p) => {
       if (get(jobId) !== p.job_id) return;
@@ -193,6 +198,7 @@ export async function startAudit(): Promise<void> {
   summary.set(null);
   logs.set([]);
   progress.set({ completed: 0, total: get(files).length });
+  currentFileName.set(null);
   selectedFile.set(null);
   notice.set(null);
   const res = await api.startAudit({ input_dir: dir, rule_file: rule });
@@ -209,6 +215,7 @@ export async function cancelAudit(): Promise<void> {
   if (!id || get(status) !== "running") return;
   const res = await api.cancelAudit(id);
   guard(res); // 失败仅提示，不改变 running 状态——由 done/error 事件收尾
+  currentFileName.set(null);
 }
 
 /** 导出 HTML 报告到默认位置并可选打开。 */
@@ -267,6 +274,7 @@ export function resetAll(): void {
   jobId.set(null);
   status.set("idle");
   progress.set({ completed: 0, total: 0 });
+  currentFileName.set(null);
   logs.set([]);
   summary.set(null);
   selectedFile.set(null);
