@@ -120,6 +120,19 @@ fn xml_err(source: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> CoreE
     }
 }
 
+/// 未闭合标签错误：quick-xml 在流式解析时遇到 `</x>` 与开标签不匹配才报错，
+/// 对“一路正常开标签直到 EOF”的输入不会主动报错（例如
+/// `<?xml ...?><w:document><w:body><w:p>`）。因此我们在扫描/改写循环里维护
+/// 一个通用深度计数器，EOF 时深度必须归零，否则视为非法 XML，返回与
+/// quick-xml 解析失败一致的 [`CoreError::Xml`]（用户文案：“文档内部格式异常”，
+/// 见 error.rs 中 CoreError::Xml 的 user_message）。
+fn unclosed_tag_err(depth: usize) -> CoreError {
+    xml_err(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        format!("文档内部格式异常：存在 {} 个未闭合的标签", depth),
+    ))
+}
+
 fn read_document_part(zip_bytes: &[u8], path: &Path) -> CoreResult<Vec<u8>> {
     let mut archive = ZipArchive::new(Cursor::new(zip_bytes)).map_err(|source| CoreError::Zip {
         note: format!(
@@ -246,6 +259,7 @@ fn scan_document(xml: &[u8]) -> CoreResult<DocScan> {
 
     let mut scan = DocScan::default();
     let mut table_depth = 0usize; // w:tbl 嵌套层数
+    let mut depth = 0usize; // 通用标签深度：EOF 时必须归零，否则存在未闭合标签
     let mut para_runs: Vec<RunInfo> = Vec::new();
     let mut cur_run_text: Option<String> = None;
     let mut run_has_highlight = false;
@@ -256,6 +270,7 @@ fn scan_document(xml: &[u8]) -> CoreResult<DocScan> {
         match ev {
             Event::Eof => break,
             Event::Start(e) => {
+                depth += 1;
                 let local = local_name(e.name().as_ref());
                 match local.as_str() {
                     "tbl" => table_depth += 1,
@@ -288,6 +303,7 @@ fn scan_document(xml: &[u8]) -> CoreResult<DocScan> {
                 }
             }
             Event::End(e) => {
+                depth = depth.saturating_sub(1);
                 let local = local_name(e.name().as_ref());
                 match local.as_str() {
                     "tbl" => table_depth = table_depth.saturating_sub(1),
@@ -312,9 +328,16 @@ fn scan_document(xml: &[u8]) -> CoreResult<DocScan> {
                     }
                     _ => {}
                 }
+                    _ => {}
+                }
             }
             _ => {}
         }
+    }
+    // 深度断言：EOF 时仍有未闭合标签 → 非法 XML（quick-xml 流式解析对
+    // “开标签直到 EOF”不报错，这里补上检出，避免产出损坏的标注副本）。
+    if depth != 0 {
+        return Err(unclosed_tag_err(depth));
     }
     Ok(scan)
 }
