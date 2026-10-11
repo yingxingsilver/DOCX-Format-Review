@@ -18,6 +18,7 @@
 //! 注：旧 `models` 模块（早期 RuleConfig/DocumentModel 原型）已随审查项 S2 删除，
 //! 其职责由 `dsl` 全量承接；单位换算入口见 `dsl::half_points_to_pt`。
 
+pub mod annotated_docx;
 pub mod audit;
 pub mod checkers;
 pub mod docx_parser;

@@ -22,9 +22,12 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      # Rust 构建缓存：缓存 target/ 与 ~/.cargo 依赖，键含 Cargo.lock 哈希，跨次运行复用增量编译产物
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "."
+          key: core-${{ runner.os }}
+          cache-all-crates: "true"
 
       - name: 格式检查
         run: cargo fmt --all --check
@@ -43,23 +46,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm
+          cache: npm
 
       - name: 安装依赖
-        run: pnpm install --frozen-lockfile || pnpm install
+        run: npm ci
 
       - name: 类型检查
-        run: pnpm check
+        run: npm run check
 
       - name: 构建
-        run: pnpm build
+        run: npm run build
 
       - name: 上传前端产物
         uses: actions/upload-artifact@v4
@@ -85,9 +84,12 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # Rust 构建缓存：Tauri 依赖树庞大（webkit/tauri crate），缓存命中可节省 10+ 分钟冷编译
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "src-tauri -> target"
+          key: tauri-${{ runner.os }}
+          cache-all-crates: "true"
 
       - name: 编译 src-tauri（含测试目标）
         run: cargo check -p paper-format-auditor --manifest-path src-tauri/Cargo.toml --all-targets
@@ -122,19 +124,22 @@ jobs:
             patchelf build-essential curl wget file libxdo-dev \
             libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm
+          cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # Rust 构建缓存：按平台区分缓存键；tauri-action 内部构建同样复用该缓存
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+          key: release-${{ matrix.platform }}${{ matrix.args }}
+          cache-all-crates: "true"
+
       - name: 安装前端依赖
-        run: pnpm install --frozen-lockfile || pnpm install
+        run: npm ci
 
       - name: Tauri 构建并发布到 GitHub Releases
         uses: tauri-apps/tauri-action@v0
