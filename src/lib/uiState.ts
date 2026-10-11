@@ -7,7 +7,15 @@
 //!   或在本文件内把 action 转发给 stores 对应函数（调用点已一一对应）。
 
 import { derived, get, writable } from "svelte/store";
-import type { AuditRunStatus } from "./types";
+import type { AuditReport, AuditRunStatus, Violation } from "./types";
+
+/** 运行日志行（P8C LogPanel 使用；真实后端由 audit://log 事件写入）。 */
+export interface UiLogLine {
+  /** Unix 毫秒时间戳。 */
+  at: number;
+  level: "info" | "warn" | "error";
+  message: string;
+}
 
 // =========================
 // 状态（字段命名与任务书/stores 期望一致）
@@ -37,6 +45,45 @@ export const summaryCounts = writable<{
   needsRevision: number;
   readFailed: number;
 } | null>(null);
+
+// =========================
+// P8C：进度与结果展示所需状态（命名与 stores.ts 对齐）
+// =========================
+
+/** 当前正在处理的文件名（真实后端来自 audit://progress 的 current_file）。 */
+export const currentFileName = writable<string | null>(null);
+/** 当前处理阶段（人话描述，供 ProgressPanel 展示）。 */
+export const stageLabel = writable<string>("");
+/** 完整审核报告（done/cancelled 时写入；ResultTable 数据源）。 */
+export const report = writable<AuditReport | null>(null);
+/** 当前选中查看详情的文件路径。 */
+export const selectedFile = writable<string | null>(null);
+/** 运行日志（面向高级用户；默认 LogPanel 折叠不可见）。 */
+export const logs = writable<UiLogLine[]>([]);
+
+/** 派生：按文件路径索引的违规列表（与 stores.violationsByFile 同名同义）。 */
+export const violationsByFile = derived(report, (r) => {
+  const map = new Map<string, Violation[]>();
+  if (r) for (const f of r.files) map.set(f.file_path, f.violations);
+  return map;
+});
+
+const MAX_LOG_LINES = 500;
+
+/** 追加一条运行日志（上限保护，防止长任务吃满内存）。 */
+export function pushLog(level: UiLogLine["level"], message: string): void {
+  logs.update((ls) => {
+    const next =
+      ls.length >= MAX_LOG_LINES ? ls.slice(ls.length - MAX_LOG_LINES + 1) : ls.slice();
+    next.push({ at: Date.now(), level, message });
+    return next;
+  });
+}
+
+/** 选中某文件查看违规详情（stores.selectFile 同名调用点）。 */
+export function selectFile(path: string | null): void {
+  selectedFile.set(path);
+}
 
 // =========================
 // 本地模拟开关（验收标准 5/6/7：无需后端即可演示各状态）
@@ -99,6 +146,9 @@ export async function startAudit(): Promise<void> {
   if (!get(inputDir)) return; // 按钮此时应为禁用态，双重保险
   errorMessage.set(null);
   summaryCounts.set(null);
+  report.set(null);
+  selectedFile.set(null);
+  logs.set([]);
   stopTimer();
   if (!get(simulateLocally)) {
     // TODO(P8C): return stores.startAudit();
@@ -106,19 +156,31 @@ export async function startAudit(): Promise<void> {
   }
   const total = get(fileCount) ?? 0;
   progress.set({ completed: 0, total });
+  stageLabel.set("正在解析样式");
+  pushLog("info", "开始检查：共 " + total + " 个文件");
   status.set("running");
+  const names = demoFileNames(total);
   let done = 0;
   simulateTimer = setInterval(() => {
     done += 1;
     progress.set({ completed: done, total });
+    currentFileName.set(names[done - 1] ?? null);
+    stageLabel.set(done <= Math.ceil(total * 0.3) ? "正在解析样式" : done < total ? "正在检查字号" : "正在生成报告");
+    if (done % 5 === 0 || done === total) {
+      pushLog("info", `已处理 ${done}/${total}：${names[done - 1] ?? ""}`);
+    }
     if (done >= total) {
       stopTimer();
+      const rep = buildDemoReport(get(inputDir) ?? "", names);
+      report.set(rep);
       summaryCounts.set({
-        total,
-        passed: Math.floor(total * 0.4),
-        needsRevision: Math.ceil(total * 0.5),
-        readFailed: total - Math.floor(total * 0.4) - Math.ceil(total * 0.5),
+        total: rep.total_files,
+        passed: rep.passed_files,
+        needsRevision: rep.failed_files,
+        readFailed: rep.read_failed_files,
       });
+      stageLabel.set("");
+      pushLog("info", `检查完成：${rep.failed_files} 个文件需要修改`);
       status.set("done");
     }
   }, 400);
@@ -129,6 +191,9 @@ export async function cancelAudit(): Promise<void> {
   // TODO(P8C): return stores.cancelAudit();
   if (get(status) !== "running") return;
   stopTimer();
+  stageLabel.set("");
+  currentFileName.set(null);
+  pushLog("warn", "用户取消了本次检查");
   status.set("cancelled");
 }
 
@@ -140,6 +205,150 @@ export function clearResults(): void {
   errorMessage.set(null);
   summaryCounts.set(null);
   progress.set({ completed: 0, total: 0 });
+  report.set(null);
+  selectedFile.set(null);
+  currentFileName.set(null);
+  stageLabel.set("");
+  logs.set([]);
+}
+
+// =========================
+// P8C 本地演示数据装配（仅 simulateLocally=true 时参与；真实后端接入后删除）
+// =========================
+
+/** 由所选目录派生一组可区分的演示文件名（数量跟随 fileCount，非写死样例逻辑）。 */
+function demoFileNames(total: number): string[] {
+  const dir = get(inputDir) ?? "/papers";
+  return Array.from({ length: total }, (_, i) => `${dir}/论文_${String(i + 1).padStart(2, "0")}.docx`);
+}
+
+/**
+ * 把演示进度数据组装成与后端 AuditReport 完全同构的对象，
+ * 使 ResultTable / ViolationDetail 在本地即可走通真实数据结构。
+ * 违规条目为占位模板（阶段验证用），字段结构与 serde 输出一致。
+ */
+function buildDemoReport(dir: string, paths: string[]): AuditReport {
+  const files = paths.map((p, i) => {
+    const name = p.split(/[\\/]/).pop() ?? p;
+    // 每 7 个文件安排一个读取失败，其余交替 通过 / 需修改。
+    if (i % 7 === 6) {
+      return {
+        file_path: p,
+        file_name: name,
+        status: "read_failed" as const,
+        error_count: 0,
+        warning_count: 0,
+        info_count: 0,
+        violations: [],
+        parse_error: "文件无法打开，可能已损坏、被加密或正被其他程序占用。请另存一份后再试。",
+      };
+    }
+    if (i % 3 === 0) {
+      return {
+        file_path: p,
+        file_name: name,
+        status: "passed" as const,
+        error_count: 0,
+        warning_count: 0,
+        info_count: 0,
+        violations: [],
+        parse_error: null,
+      };
+    }
+    const mk = (
+      rule_id: string,
+      severity: "error" | "warning" | "info",
+      page: number,
+      para: number,
+      message: string,
+      expected: string,
+      actual: string,
+      excerpt: string,
+      suggestion: string,
+    ): Violation => ({
+      rule_id,
+      severity,
+      file_path: p,
+      location: {
+        section_index: null,
+        block_index: null,
+        paragraph_index: para - 1,
+        run_index: null,
+        page_hint: page,
+        object_ref: null,
+      },
+      message,
+      expected,
+      actual,
+      excerpt,
+      suggestion,
+      confidence: 0.9,
+      requires_manual_review: false,
+    });
+    const violations: Violation[] = [
+      mk(
+        "font.size.body",
+        "error",
+        1 + (i % 3),
+        3,
+        "正文第一段字号偏小，阅读困难。",
+        "小四（12 磅）",
+        "9 磅",
+        "本文以在线学习行为数据为基础……",
+        "选中该段文字，将字号调整为“小四”。",
+      ),
+      mk(
+        "spacing.line.body",
+        "warning",
+        2 + (i % 2),
+        8,
+        "部分段落行距与学校要求不一致。",
+        "固定值 20 磅",
+        "单倍行距",
+        "研究结果表明，干预措施对成绩提升具有显著作用。",
+        "全选正文段落后，在“段落-行距”中改为固定值 20 磅。",
+      ),
+      mk(
+        "heading.style.level1",
+        "info",
+        1,
+        1,
+        "一级标题未使用统一的标题样式。",
+        "黑体三号居中",
+        "宋体四号左对齐",
+        "第一章 绪论",
+        "选中标题，套用“标题 1”样式并设为黑体三号居中。",
+      ),
+    ];
+    return {
+      file_path: p,
+      file_name: name,
+      status: "needs_revision" as const,
+      error_count: violations.filter((v) => v.severity === "error").length,
+      warning_count: violations.filter((v) => v.severity === "warning").length,
+      info_count: violations.filter((v) => v.severity === "info").length,
+      violations,
+      parse_error: null,
+    };
+  });
+  const passed = files.filter((f) => f.status === "passed").length;
+  const failed = files.filter((f) => f.status === "needs_revision").length;
+  const readFailed = files.filter((f) => f.status === "read_failed").length;
+  const allV = files.flatMap((f) => f.violations);
+  return {
+    generated_at: new Date().toISOString(),
+    input_dir: dir,
+    rule_file: get(rulePath) ?? "内置通用规则",
+    rule_profile: null,
+    total_files: files.length,
+    passed_files: passed,
+    failed_files: failed,
+    read_failed_files: readFailed,
+    total_errors: allV.filter((v) => v.severity === "error").length,
+    total_warnings: allV.filter((v) => v.severity === "warning").length,
+    total_infos: allV.filter((v) => v.severity === "info").length,
+    files,
+  };
 }
 
 /** 导出 HTML 报告（本阶段占位）。调用点：stores.exportHtml()。 */
