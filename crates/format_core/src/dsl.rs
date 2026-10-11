@@ -19,10 +19,12 @@ use serde::{Deserialize, Serialize};
 // =========================
 
 /// 严重级别。对普通用户展示为：错误 / 警告 / 提示。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+/// P8D：`Default = Warning`，使带容器级 `#[serde(default)]` 的结构体（如 [Violation]）可被反序列化。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Severity {
     Error,
+    #[default]
     Warning,
     Info,
 }
@@ -1139,22 +1141,60 @@ pub struct Location {
 
 /// 一条格式问题。message 必须中文、面向非技术人员；禁止出现 XML 节点名等技术词。
 ///
-/// P8D：字段全部 `#[serde(default)]`，容忍 GUI 回传的部分缺省 JSON（见 [Location] 注释）。
+/// P8D：容器级 `#[serde(default)]` + `Default`，容忍 GUI 回传的部分缺省 JSON（见 [Location] 注释）。
+/// `confidence`/`requires_manual_review` 用字段级默认值，避免"空 Violation"语义误导。
+///
+/// 修复 CI E0277：容器级 `#[serde(default)]` 要求类型实现 `Default`。
+/// 本类型采用**手写** `impl Default`（见下方），它与 derive 互斥，
+/// 因此这里不 derive Default；此前 CI 失败是因为该手写实现尚未随结构体一起提交。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Violation {
+    #[serde(default)]
     pub rule_id: String,
+    #[serde(default)]
     pub severity: Severity,
+    #[serde(default)]
     pub file_path: PathBuf,
+    #[serde(default)]
     pub location: Location,
+    #[serde(default)]
     pub message: String,
+    #[serde(default)]
     pub expected: Option<String>,
+    #[serde(default)]
     pub actual: Option<String>,
+    #[serde(default)]
     pub excerpt: Option<String>,
+    #[serde(default)]
     pub suggestion: Option<String>,
-    /// 0.0~1.0，低置信度问题应降级为 info/manual_review。
+    /// 0.0~1.0，低置信度问题应降级为 info/manual_review。缺省视为完全可信。
+    #[serde(default = "default_confidence")]
     pub confidence: f32,
+    #[serde(default)]
     pub requires_manual_review: bool,
+}
+
+fn default_confidence() -> f32 {
+    1.0
+}
+
+impl Default for Violation {
+    fn default() -> Self {
+        Self {
+            rule_id: String::new(),
+            severity: Severity::Warning,
+            file_path: PathBuf::new(),
+            location: Location::default(),
+            message: String::new(),
+            expected: None,
+            actual: None,
+            excerpt: None,
+            suggestion: None,
+            confidence: default_confidence(),
+            requires_manual_review: false,
+        }
+    }
 }
 
 /// 单个文件的审核状态。
@@ -1169,35 +1209,88 @@ pub enum FileStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
 pub struct FileAuditSummary {
+    #[serde(default)]
     pub file_path: PathBuf,
+    #[serde(default)]
     pub file_name: String,
+    #[serde(default)]
     pub status: FileStatus,
+    #[serde(default)]
     pub error_count: usize,
+    #[serde(default)]
     pub warning_count: usize,
+    #[serde(default)]
     pub info_count: usize,
+    #[serde(default)]
     pub violations: Vec<Violation>,
     /// 面向用户的中文失败原因（损坏 docx / 加密 docx / 空文件等），不含技术堆栈。
+    #[serde(default)]
     pub parse_error: Option<String>,
+}
+
+impl Default for FileAuditSummary {
+    fn default() -> Self {
+        Self {
+            file_path: PathBuf::new(),
+            file_name: String::new(),
+            status: FileStatus::default(),
+            error_count: 0,
+            warning_count: 0,
+            info_count: 0,
+            violations: Vec::new(),
+            parse_error: None,
+        }
+    }
 }
 
 /// 批量审核总报告。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
 pub struct AuditReport {
+    #[serde(default)]
     pub generated_at: String,
+    #[serde(default)]
     pub input_dir: PathBuf,
+    #[serde(default)]
     pub rule_file: PathBuf,
+    /// P8D：借用此字段回传"标注版 DOCX 生成结果清单"（JSON 字符串），避免破坏既有测试的字段名。
+    #[serde(default)]
     pub rule_profile: Option<String>,
+    #[serde(default)]
     pub total_files: usize,
+    #[serde(default)]
     pub passed_files: usize,
+    #[serde(default)]
     pub failed_files: usize,
+    #[serde(default)]
     pub read_failed_files: usize,
+    #[serde(default)]
     pub total_errors: usize,
+    #[serde(default)]
     pub total_warnings: usize,
+    #[serde(default)]
     pub total_infos: usize,
+    #[serde(default)]
     pub files: Vec<FileAuditSummary>,
+}
+
+impl Default for AuditReport {
+    fn default() -> Self {
+        Self {
+            generated_at: String::new(),
+            input_dir: PathBuf::new(),
+            rule_file: PathBuf::new(),
+            rule_profile: None,
+            total_files: 0,
+            passed_files: 0,
+            failed_files: 0,
+            read_failed_files: 0,
+            total_errors: 0,
+            total_warnings: 0,
+            total_infos: 0,
+            files: Vec::new(),
+        }
+    }
 }
 
 // =========================

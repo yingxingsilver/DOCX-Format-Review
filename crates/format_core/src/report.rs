@@ -92,6 +92,11 @@ pub fn plain_term(raw: &str) -> String {
     // 行距固定值：如 "lineRule=exact line=400" → "固定值 20 磅"（line 单位 1/20 磅）。
     // 注意：OOXML 的 lineRule 取值本身是枚举词（auto / exact / atLeast），
     // 数字形式（"1"/"4"）只出现在 w:spacing 属性里；这里两种写法都接受。
+    // 粘连场景："linerule=exact|line=400"（压缩空白后）中，查询键 "linerule"
+    // 会命中并进入空值重考察分支——此时 `=` 后的第一段内容 "line=400" 本身
+    // 是新键，说明当前键没有独立值。若该段恰为行距数值键 "line="，且其前一
+    // 个字符是 OOXML ST_LineSpacingRule 的合法枚举词（exact/atleast/auto），
+    // 则可直接判定规则类型并完成翻译（历史上此处曾因失配把行距误显示为裸数字 "400"）。
     if let Some(rule) = extract_key_value(t, "linerule") {
         // OOXML ST_LineSpacingRule 的合法取值只有 auto / exact / atLeast，
         // 大小写与首尾空白不敏感（属性串可能来自不同序列化实现）。
@@ -103,6 +108,37 @@ pub fn plain_term(raw: &str) -> String {
         if rl == "exact" || rl == "atleast" || rl == "4" || rl == "1" {
             if let Some(p) = extract_key_number(t, "line") {
                 return format!("固定值 {} 磅", round_pt(p / 20.0));
+            }
+        }
+    } else if let Some(pos) = find_key_at_word_boundary(t, "linerule") {
+        // 空值重考察路径：`linerule=` 之后直接是另一个键。检查它是否为
+        // "line="，并且粘连前缀是合法枚举词。
+        let after_key = &t[pos + "linerule".len()..]; // 键名按 ASCII 处理
+        if let Some(rest) = after_key.strip_prefix('=') {
+            // '=' 后允许原本有空白（真实空值场景，交给通用逻辑处理）；
+            // 这里只关心"字母 token 紧贴 ="的粘连形态。
+            let mut end = 0usize;
+            for (i, c) in rest.char_indices() {
+                if c.is_ascii_alphanumeric() {
+                    end = i + c.len_utf8();
+                } else {
+                    break;
+                }
+            }
+            let token = &rest[..end];
+            if token.eq_ignore_ascii_case("line") && rest[end..].starts_with('=') {
+                let prefix: String = token
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphabetic())
+                    .collect::<String>()
+                    .to_ascii_lowercase();
+                // 去掉结尾的 "line" 得到粘连的规则词前缀（"exactline" → "exact"）
+                let rule_word = prefix.strip_suffix("line").unwrap_or("");
+                if matches!(rule_word, "exact" | "atleast") {
+                    if let Some(p) = extract_key_number(t, "line") {
+                        return format!("固定值 {} 磅", round_pt(p / 20.0));
+                    }
+                }
             }
         }
     }
@@ -213,6 +249,38 @@ fn strip_trailing_kv(v: &str) -> &str {
     }
 }
 
+/// 在 `s` 中查找键名 `key`（大小写不敏感）出现在词边界上、且键后紧邻 `=`
+/// 的位置，返回键的起始字节下标。
+///
+/// 词边界：串首，或前一个字符是空白 / 非 ASCII 字母数字（如 `-`）。
+/// 例：查 "linerule" 时，"lineRule=exact line=400" 命中下标 0；
+/// "before-spacing linerule=auto" 命中空白后的位置；"xlinerule=1" 不命中。
+fn find_key_at_word_boundary(s: &str, key: &str) -> Option<usize> {
+    let lower = s.to_ascii_lowercase(); // ASCII 小写不改变字节长度与下标
+    let bytes = lower.as_bytes();
+    let kb = key.as_bytes();
+    if kb.is_empty() {
+        return None;
+    }
+    let mut idx = 0usize;
+    while idx + kb.len() <= bytes.len() {
+        if &bytes[idx..idx + kb.len()] != kb {
+            idx += 1;
+            continue;
+        }
+        let before_ok = idx == 0 || {
+            let pv = bytes[idx - 1];
+            pv.is_ascii_whitespace() || !(pv.is_ascii_alphanumeric())
+        };
+        let after_eq = idx + kb.len() < bytes.len() && bytes[idx + kb.len()] == b'=';
+        if before_ok && after_eq {
+            return Some(idx);
+        }
+        idx += 1;
+    }
+    None
+}
+
 /// 提取 `key=value` 形式的字符串值（大小写不敏感、忽略空格）。
 ///
 /// 值的截断规则（关键修复点）：压缩空白会把相邻属性粘连
@@ -317,21 +385,10 @@ fn extract_key_value(s: &str, key: &str) -> Option<String> {
                 }
                 is_boundary(end) || (j + 1 < n && chars[j + 1].is_ascii_digit())
             };
-            // 空值场景："linerule= line=400"——`=` 后的第一段内容本身
-            // 就是一个新键（原本紧跟空白、位于词边界且形如 `xxx=`）。
-            // 此时当前键没有值，绝不能把该段吞掉，而是从它的起点重新
-            // 考察候选键，让真正的 "line=400" 能被查到。
-            if start < n && gap[start] && is_boundary(start) {
-                let mut j = start;
-                while j < n && chars[j].is_ascii_alphanumeric() {
-                    j += 1;
-                }
-                if j < n && chars[j] == '=' {
-                    idx = start;
-                    continue;
-                }
-            }
             let mut end = start;
+            // 记录“值内部”首个被判定为下一个键的 token 起点（粘连形态，
+            // 如 "exact|line=400"）；词边界上的截断则直接结束扫描。
+            let mut glued_break: Option<usize> = None;
             while end < n {
                 let c = chars[end];
                 if c == ';' || c == ':' {
@@ -343,22 +400,49 @@ fn extract_key_value(s: &str, key: &str) -> Option<String> {
                         j += 1;
                     }
                     if value_breaks_at(end, j) {
-                        // 词边界上的 `xxx=` 是真正的“下一个键”；粘连在
-                        // 值内部但 `=` 后以数字开头的 `xxx=` 属于被空白
-                        // 粘连进来的下一个键——两种情况当前值都在该
-                        // token 起点处结束。
-                        break;
+                        if is_boundary(end) {
+                            // 词边界上的 `xxx=` 是真正的“下一个键”，当前值到此结束。
+                            break;
+                        }
+                        // 粘连在值内部且 `=` 后以数字开头（如 "exact|line=400"）：
+                        // 数值属于下一个键，当前真值在该 token 起点处结束；
+                        // 扫描继续，以便后续能定位到真正的键位置。
+                        if glued_break.is_none() {
+                            glued_break = Some(end);
+                        }
                     }
                     end = j.max(end + 1);
                     continue;
                 }
                 end += 1;
             }
+            let end = if glued_break.map_or(false, |g| g < end) {
+                glued_break.unwrap()
+            } else {
+                end
+            };
             let val: String = chars[start..end].iter().collect();
+            // 空值场景："linerule= line=400"——`=` 后的第一段内容本身
+            // 就是一个新键（原本紧跟空白、位于词边界且形如 `xxx=`）。
+            // 此时当前键没有值，绝不能把该段吞掉，也不能把空串记为命中，
+            // 而是从它的起点重新考察候选键，让真正的 "line=400" 能被查到。
+            if val.is_empty() && start < n && gap[start] && is_boundary(start) {
+                let mut j = start;
+                while j < n && chars[j].is_ascii_alphanumeric() {
+                    j += 1;
+                }
+                if j < n && chars[j] == '=' {
+                    idx = start;
+                    continue;
+                }
+            }
             if !val.is_empty() {
                 found = Some(val); // 多处命中取最后一处
             }
-            idx = end.max(p + klen);
+            // 前进量必须至少跨过“下一个键的起点”：粘连截断场景
+            // （"linerule=exact|line=400"，end=5）若只按 end 前进会回到
+            // 键起点造成死循环；真正的新键 token 一定在 end 之后。
+            idx = (end + 1).max(p + klen);
             continue;
         }
         idx = p + klen;
