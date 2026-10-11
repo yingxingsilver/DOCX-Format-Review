@@ -328,8 +328,6 @@ fn scan_document(xml: &[u8]) -> CoreResult<DocScan> {
                     }
                     _ => {}
                 }
-                    _ => {}
-                }
             }
             _ => {}
         }
