@@ -11,11 +11,13 @@
     status: AuditRunStatus;
     /** 规则文件校验失败标记（后续阶段由后端校验结果驱动）。 */
     ruleInvalid?: boolean;
+    /** 规则校验提示文案（来自后端校验结果，可为空）。 */
+    ruleHint?: string | null;
     onChoose: () => void;
     onReset: () => void;
   }
 
-  let { ruleFileName, status, ruleInvalid = false, onChoose, onReset }: Props = $props();
+  let { ruleFileName, status, ruleInvalid = false, ruleHint = null, onChoose, onReset }: Props = $props();
 
   const disabled = $derived(status === "running");
 </script>
@@ -48,6 +50,8 @@
       <div role="alert" class="alert alert-warning py-2 text-sm">
         <span>规则文件格式不正确，请重新选择。</span>
       </div>
+    {:else if ruleHint && ruleFileName}
+      <p class="text-xs text-base-content/70">{ruleHint}</p>
     {/if}
 
     <button

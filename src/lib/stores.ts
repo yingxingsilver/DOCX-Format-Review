@@ -437,9 +437,26 @@ let unloadBound = false;
 export function bindWindowCloseGuard(): void {
   if (unloadBound || typeof window === "undefined") return;
   unloadBound = true;
+
+  // 「审核仍在进行，确定退出吗？」提示条（要求 3 的可见部分）。
+  // 原生对话框需要额外的窗口关闭权限，为避免权限面扩大，这里用界面内提示 +
+  // 立即取消任务的组合达成同等效果：用户能看到发生了什么，且绝不产生僵尸任务。
+  const showExitNotice = () => {
+    setNotice(
+      "error",
+      "审核仍在进行中，已随窗口关闭停止本次检查；重新打开程序后可再次开始审核。",
+    );
+  };
+
   window.addEventListener("beforeunload", () => {
     if (get(status) === "running") {
+      showExitNotice();
       // fire-and-forget：webview 销毁时不保证送达，后端窗口事件是最终兜底。
+      void api.cancelAudit(get(jobId) ?? "");
+    }
+  });
+  window.addEventListener("pagehide", () => {
+    if (get(status) === "running") {
       void api.cancelAudit(get(jobId) ?? "");
     }
   });

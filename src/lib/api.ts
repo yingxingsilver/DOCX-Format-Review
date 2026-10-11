@@ -7,7 +7,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 import type {
   ApiResult,
@@ -177,3 +177,28 @@ export const onAuditDone = (h: (p: DoneEvent) => void) => bind(AUDIT_EVENTS.done
 
 /** 监听 `audit://error`，返回取消函数。 */
 export const onAuditError = (h: (p: ErrorEvent) => void) => bind(AUDIT_EVENTS.error, h);
+
+/**
+ * 原生「是否」确认对话框（P8D：窗口关闭守卫）。
+ * - 在 Tauri 环境中走系统对话框；非 Tauri 环境（如浏览器/测试）回退到 window.confirm；
+ * - 任何异常一律按「不阻止」处理（返回 true），绝不因对话框失败而卡死退出流程。
+ */
+export async function confirmExit(message: string): Promise<boolean> {
+  try {
+    return await confirmDialog(message, {
+      title: "审核仍在进行",
+      kind: "warning",
+      okLabel: "确定退出",
+      cancelLabel: "继续等待",
+    });
+  } catch {
+    if (typeof window !== "undefined" && typeof window.confirm === "function") {
+      try {
+        return window.confirm(message);
+      } catch {
+        return true;
+      }
+    }
+    return true;
+  }
+}

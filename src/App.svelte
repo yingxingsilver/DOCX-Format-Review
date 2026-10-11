@@ -58,8 +58,14 @@
     selectFile,
     bindWindowCloseGuard,
     pathBaseName,
-    type LogLine,
-  } from "./lib/appModel";
+  } from "./lib/stores";
+
+  /** LogPanel 所需的日志行结构（stores.logs 为字符串数组，这里在本地补齐）。 */
+  interface LogLine {
+    at: number;
+    level: "info" | "warn" | "error";
+    message: string;
+  }
 
   /** 首次挂载：注册窗口关闭兜底守卫（任务运行中退出时通知后端取消）。 */
   $effect(() => {

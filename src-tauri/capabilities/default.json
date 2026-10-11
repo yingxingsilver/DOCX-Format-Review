@@ -1,10 +1,18 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "默认能力：允许主窗口调用自身命令（骨架阶段仅 core_version）",
+  "description": "论文格式批量审核系统主窗口能力：核心事件/命令 + 文件夹选择对话框 + 打开报告/文件",
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "opener:default"
+    "core:event:default",
+    "dialog:default",
+    "dialog:allow-open",
+    "dialog:allow-ask",
+    "dialog:allow-confirm",
+    "dialog:allow-message",
+    "opener:default",
+    "opener:allow-open-path",
+    "opener:allow-open-url"
   ]
 }
