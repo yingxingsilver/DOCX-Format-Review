@@ -308,6 +308,9 @@ pub(crate) fn number_follows(prev: &[u32], cur: &[u32], rule: &CaptionNumberingR
         return false;
     }
     // 长度变化（如 “图1” → “图2-1”）：无法可靠判断，不算跳号
+    if rule.allow_chapter_prefix {
+        return true;
+    }
     !rule.continuous
 }
 

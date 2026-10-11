@@ -89,8 +89,14 @@ pub fn plain_term(raw: &str) -> String {
             };
         }
     }
-    // 行距固定值：如 "lineRule=exact line=400" → "固定值 20 磅"（line 单位 1/20 磅）
-    if let Some(rule) = extract_key_value(t, "linerule") {
+    // 行距固定值：如 "lineRule=exact line=400" → "固定值 20 磅"（line 单位 1/20 磅）。
+    // 注意：extract_key_value 会压缩空白，查找 "linerule" 时 "…=exact line=400" 会被
+    // 误吞为 "exactline=400"；因此取值后需截断到第一个 '=' 之前（键名不含 '='），
+    // 既兼容含空格的规范输入，也兜底处理无分隔符拼接的异常输入。
+    if let Some(rule) = extract_key_value(t, "linerule").map(|v| {
+        let idx = v.find('=').unwrap_or(v.len());
+        v[..idx].to_string()
+    }) {
         if rule == "exact" || rule == "4" || rule == "1" {
             if let Some(p) = extract_key_number(t, "line") {
                 return format!("固定值 {} 磅", round_pt(p / 20.0));
@@ -328,21 +334,18 @@ fn write_csv_row(out: &mut String, fields: &[&str]) {
     out.push_str("\r\n");
 }
 
-/// 单条违规 → CSV 九个字段（除文件名/页码/段落号/摘录截断外全部零拷贝借用）。
-fn csv_fields(
-    v: &Violation,
-) -> [String; 9] {
+fn csv_fields(v: &Violation) -> [String; 9] {
     let file_name = file_display_name(&v.file_path);
     let page = v
         .location
         .page_hint
         .map(|p| p.to_string())
-        .unwrap_or_else(|| "-".into());
+        .unwrap_or_else(|| "-".to_string());
     let para = v
         .location
         .paragraph_index
         .map(|i| (i + 1).to_string())
-        .unwrap_or_else(|| "-".into());
+        .unwrap_or_else(|| "-".to_string());
     let excerpt = v
         .excerpt
         .as_deref()
@@ -359,6 +362,11 @@ fn csv_fields(
         v.actual.clone().unwrap_or_default(),
         excerpt,
     ]
+}
+
+/// 将 `[String; N]` 字段数组转为 `&[&str]` 借用视图，供 write_csv_row 零转义写入。
+fn as_str_refs<const N: usize>(fields: &[String; N]) -> [&str; N] {
+    std::array::from_fn(|i| fields[i].as_str())
 }
 
 fn file_display_name(path: &std::path::Path) -> String {
@@ -395,7 +403,7 @@ pub fn render_csv(report: &AuditReport) -> String {
         }
         for v in &file.violations {
             let fields = csv_fields(v);
-            write_csv_row(&mut out, &fields);
+            write_csv_row(&mut out, &as_str_refs(&fields));
         }
     }
     out
@@ -914,7 +922,7 @@ mod tests {
         assert_eq!(fields[3], "提示");
         assert_eq!(fields[5], "含\"引号\",和逗号");
         let mut out2 = String::new();
-        write_csv_row(&mut out2, &fields);
+        write_csv_row(&mut out2, &as_str_refs(&fields));
         assert!(out2.contains("\"含\"\"引号\"\",和逗号\""));
     }
 
