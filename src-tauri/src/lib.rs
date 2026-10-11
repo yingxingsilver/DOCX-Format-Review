@@ -9,7 +9,15 @@ mod commands;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![commands::core_version, commands::export_report])
+        // 批量审核任务注册表（job_id -> 取消令牌），供 start_audit / cancel_audit 共享。
+        .manage(commands::AuditJobs::default())
+        .invoke_handler(tauri::generate_handler![
+            commands::core_version,
+            commands::export_report,
+            commands::list_docx_files,
+            commands::start_audit,
+            commands::cancel_audit,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
