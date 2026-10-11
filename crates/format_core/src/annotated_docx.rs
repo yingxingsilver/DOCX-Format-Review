@@ -157,7 +157,7 @@ fn read_document_part(zip_bytes: &[u8], path: &Path) -> CoreResult<Vec<u8>> {
             return Err(CoreError::OutOfRange {
                 field: "word/document.xml 解压大小".into(),
                 value: format!("{} 字节", entry.size()),
-                allowed: format!("不超过 {MAX_PART_BYTES} 字节").into(),
+                allowed: format!("不超过 {MAX_PART_BYTES} 字节"),
             });
         }
         let mut buf = Vec::new();

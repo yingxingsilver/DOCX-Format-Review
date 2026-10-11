@@ -126,7 +126,7 @@ pub fn matches_text_regex(t: &TargetSpec, p: &Paragraph) -> bool {
 fn checker_selects(c: &CompiledChecker, p: &Paragraph) -> bool {
     target_matches(c.target(), p)
         && c.compiled_text_regex()
-            .map_or(true, |re| re.is_match(&p.text))
+            .is_none_or(|re| re.is_match(&p.text))
 }
 
 // =========================
