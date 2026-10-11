@@ -39,6 +39,15 @@ pub enum CoreError {
         source: Box<dyn std::error::Error + Send + Sync>,
     },
 
+    /// 解析结果文件（`.parsed.json` sidecar）内容有误——是解析管线产物问题，
+    /// 不应伪装成“文档内部 XML 损坏”误导用户（审查项 G4）。
+    #[error("解析结果文件有误: {path}")]
+    SidecarInvalid {
+        path: String,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
     /// .docx 缺少必需部件（例如没有 word/document.xml）。
     #[error("文件缺少必需的文档部件: {part}")]
     MissingPart { part: String },
@@ -103,6 +112,9 @@ impl CoreError {
             }
             CoreError::Xml { .. } => {
                 "文档内部内容损坏，Word 可能提示需要修复；建议另存为新文件后重试。".to_string()
+            }
+            CoreError::SidecarInvalid { .. } => {
+                "这份文档的解析结果有误，暂时无法完成检查；请重新导出解析结果后再试。".to_string()
             }
             CoreError::MissingPart { .. } => {
                 "文件缺少必要的文档内容，可能不是有效的 Word 论文文档。".to_string()
@@ -183,5 +195,19 @@ mod tests {
             source: std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied"),
         };
         assert!(e.debug_chain().contains("PermissionDenied") || e.debug_chain().contains("denied"));
+    }
+
+    /// 审查项 G4：sidecar 解析错误必须有独立、友好的中文文案，且不外露技术术语。
+    #[test]
+    fn sidecar_invalid_message_is_friendly_and_free_of_technical_terms() {
+        let e = CoreError::SidecarInvalid {
+            path: "/tmp/甲.docx.parsed.json".into(),
+            source: Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, "bad json")),
+        };
+        let msg = e.user_message();
+        assert!(msg.contains("解析结果"), "{msg}");
+        for banned in ["json", "xml", "w:", "panic", "unwrap", "stack", "/tmp"] {
+            assert!(!msg.to_ascii_lowercase().contains(banned), "外露术语: {msg}");
+        }
     }
 }

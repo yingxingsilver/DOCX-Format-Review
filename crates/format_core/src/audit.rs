@@ -104,7 +104,12 @@ pub fn target_matches(target: Option<&TargetSpec>, p: &Paragraph) -> bool {
     true
 }
 
-/// 对带 text_regex 的目标做正则匹配（正则非法视为不命中；构建期已编译一次）。
+/// 对带 text_regex 的目标做正则匹配（**测试/低频路径专用**，审查项 S4）。
+///
+/// 每次调用都会重新编译正则：热路径禁止使用本函数，请走
+/// [`crate::checkers::CompiledChecker::compiled_text_regex`]（构建期编译一次），
+/// 即 [`checker_selects`]。非法正则视为不命中以外的“全部命中”兜底。
+#[cfg(test)]
 pub fn matches_text_regex(t: &TargetSpec, p: &Paragraph) -> bool {
     match t
         .text_regex

@@ -691,6 +691,31 @@ pub fn within(value: f64, target: f64, tol: f64) -> bool {
     value.is_finite() && target.is_finite() && (value - target).abs() <= tol
 }
 
+// =========================
+// OOXML 单位换算（自旧 models 模块迁移，审查项 7）
+// =========================
+
+/// OOXML `w:sz` / `w:szCs` 以**半磅**存储；解析层必须经此函数换算为 pt。
+/// 这是全工程唯一的字号单位换算入口，禁止在别处手写 `/2.0`。
+pub fn half_points_to_pt(half_points: f64) -> f64 {
+    half_points / 2.0
+}
+
+/// OOXML 长度属性（页边距、缩进、行高等）以 **twips**（1/20 pt）存储，换算为 pt。
+pub fn twips_to_pt(twips: i64) -> f64 {
+    twips as f64 / 20.0
+}
+
+/// twips → mm（页面尺寸用；1 inch = 1440 twips = 25.4 mm）。
+pub fn twips_to_mm(twips: i64) -> f64 {
+    twips as f64 * 25.4 / 1440.0
+}
+
+/// twips → cm（页边距用）。
+pub fn twips_to_cm(twips: i64) -> f64 {
+    twips as f64 / 566.9291338582677
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct RuleDefaults {
     #[serde(default)]
@@ -1236,6 +1261,19 @@ mod tests {
         assert!(within(12.4, 12.0, 0.5));
         assert!(!within(12.6, 12.0, 0.5));
         assert!(!within(f64::NAN, 12.0, 0.5));
+    }
+
+    /// 审查项 7：半磅→pt 等 OOXML 单位换算必须有直接单测（自旧 models 迁移）。
+    #[test]
+    fn ooxml_unit_conversions_are_exact() {
+        // w:sz=24 半磅 → 12 pt（小四）；w:sz=21 → 10.5 pt（五号）。
+        assert_eq!(half_points_to_pt(24.0), 12.0);
+        assert_eq!(half_points_to_pt(21.0), 10.5);
+        assert_eq!(twips_to_pt(240), 12.0);
+        // A4：11906 twips ≈ 210.0 mm（容差内）。
+        assert!(within(twips_to_mm(11906), 210.0, 0.5));
+        // 3.17 cm 边距：1800 twips。
+        assert!(within(twips_to_cm(1800), 3.18, 0.05));
     }
 
     #[test]
