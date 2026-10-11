@@ -161,6 +161,22 @@ jobs:
       - name: 安装前端依赖
         run: npm ci
 
+      # ★ 修复 WiX light.exe 失败：启用 .NET Framework 3.5（WiX3 运行时依赖）
+      - name: Enable .NET Framework 3.5 (for WiX3)
+        if: matrix.platform == 'windows-latest'
+        shell: powershell
+        run: |
+          Write-Host "Enabling .NET Framework 3.5..."
+          dism /online /enable-feature /featurename:NetFx3 /all /norestart
+          # 验证安装成功
+          $installed = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v3.5").Install
+          if ($installed -eq 1) {
+            Write-Host "✅ .NET Framework 3.5 enabled successfully"
+          } else {
+            Write-Error "❌ Failed to enable .NET Framework 3.5"
+            exit 1
+          }
+
       # ★ Tag 幂等创建：避免重复触发时报错
       - name: 为手动触发创建临时 Tag
         if: github.event_name == 'workflow_dispatch' && inputs.version_tag != ''
