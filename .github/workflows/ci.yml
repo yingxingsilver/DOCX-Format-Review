@@ -4,7 +4,17 @@ on:
   push:
     branches: [main]
   pull_request:
+  # ★ 新增：允许在 GitHub Actions 页面手动触发，并提供选项
   workflow_dispatch:
+    inputs:
+      do_release:
+        description: '是否打包并发布到 Releases？(勾选即打包)'
+        type: boolean
+        default: false
+      version_tag:
+        description: 'Release 版本号 (仅打包时需要，如 v1.0.0)'
+        required: false
+        default: ''
 
 env:
   CARGO_TERM_COLOR: always
@@ -22,17 +32,11 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      # Rust 构建缓存：缓存 target/ 与 ~/.cargo 依赖，键含 Cargo.lock 哈希，跨次运行复用增量编译产物
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "."
           key: core-${{ runner.os }}
           cache-all-crates: "true"
-
-      # 格式检查已关闭：rustfmt 的换行偏好差异不应阻塞功能验证，
-      # 本地开发时可用 `cargo fmt --all` 自行格式化。
-      # - name: 格式检查
-      #   run: cargo fmt --all --check
 
       - name: Clippy（警告即失败）
         run: cargo clippy -p format_core --all-targets -- -D warnings
@@ -86,7 +90,6 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      # Rust 构建缓存：Tauri 依赖树庞大（webkit/tauri crate），缓存命中可节省 10+ 分钟冷编译
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "src-tauri -> target"
@@ -96,10 +99,16 @@ jobs:
       - name: 编译 src-tauri（含测试目标）
         run: cargo check -p paper-format-auditor --manifest-path src-tauri/Cargo.toml --all-targets
 
-  # ── 发布构建：打 v* tag 时产出三平台安装包 ──
+  # ── 发布构建：打 v* tag 或 手动勾选时产出三平台安装包 ──
   release:
     name: 打包发布 (${{ matrix.platform }} ${{ matrix.args }})
-    if: startsWith(github.ref, 'refs/tags/v')
+    # ★ 修改点：满足以下任一条件即触发打包
+    # 1. 推送了 v 开头的 tag
+    # 2. 手动触发 (workflow_dispatch) 且勾选了 do_release
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') || 
+      (github.event_name == 'workflow_dispatch' && inputs.do_release == true)
+    
     needs: [core, frontend, tauri-build]
     strategy:
       fail-fast: false
@@ -117,6 +126,9 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 如果是手动触发并填了 tag，确保拉取完整历史
+          fetch-depth: 0
 
       - name: Linux 系统依赖
         if: matrix.platform == 'ubuntu-22.04'
@@ -131,9 +143,11 @@ jobs:
           node-version: 20
           cache: npm
 
+      # ★ 修复点：macOS 交叉编译必须显式安装对应的 Rust target
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-      # Rust 构建缓存：按平台区分缓存键；tauri-action 内部构建同样复用该缓存
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "."
@@ -143,9 +157,23 @@ jobs:
       - name: 安装前端依赖
         run: npm ci
 
+      # ★ 修改点：手动触发时，如果填写了 version_tag，自动创建 Tag 以便 tauri-action 生成 Release
+      - name: 为手动触发创建临时 Tag (可选)
+        if: github.event_name == 'workflow_dispatch' && inputs.version_tag != ''
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ inputs.version_tag }}
+          git push origin ${{ inputs.version_tag }}
+
       - name: Tauri 构建并发布到 GitHub Releases
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: ${{ matrix.args }}
+          # 如果是手动触发且没填 tag，可以指定 tagName 让 tauri-action 知道发到哪里
+          tagName: ${{ github.event_name == 'workflow_dispatch' && inputs.version_tag != '' && inputs.version_tag || github.ref_name }}
+          releaseName: "App ${{ github.event_name == 'workflow_dispatch' && inputs.version_tag != '' && inputs.version_tag || github.ref_name }}"
+          releaseBody: "由 GitHub Actions 自动构建"
+          releaseDraft: true # 建议设为草稿，手动确认后再发布
