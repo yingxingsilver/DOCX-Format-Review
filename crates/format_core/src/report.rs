@@ -90,13 +90,8 @@ pub fn plain_term(raw: &str) -> String {
         }
     }
     // 行距固定值：如 "lineRule=exact line=400" → "固定值 20 磅"（line 单位 1/20 磅）。
-    // 注意：extract_key_value 会压缩空白，查找 "linerule" 时 "…=exact line=400" 会被
-    // 误吞为 "exactline=400"；因此取值后需截断到第一个 '=' 之前（键名不含 '='），
-    // 既兼容含空格的规范输入，也兜底处理无分隔符拼接的异常输入。
-    if let Some(rule) = extract_key_value(t, "linerule").map(|v| {
-        let idx = v.find('=').unwrap_or(v.len());
-        v[..idx].to_string()
-    }) {
+    // extract_key_value 已按“下一个 xxx= 键边界”截断取值，无需再手工切 '='。
+    if let Some(rule) = extract_key_value(t, "linerule") {
         if rule == "exact" || rule == "4" || rule == "1" {
             if let Some(p) = extract_key_number(t, "line") {
                 return format!("固定值 {} 磅", round_pt(p / 20.0));
@@ -175,29 +170,77 @@ fn parse_points(s: &str) -> Option<f64> {
     core.parse::<f64>().ok()
 }
 
-/// 提取 `key = 值` 形式中的数值（大小写不敏感、忽略空格；key 后必须紧跟 `=`，
-/// 因此查找 "line" 不会误命中 "linerule"）。
-fn extract_key_value(s: &str, key: &str) -> Option<String> {
-    let compact: String = s.to_ascii_lowercase().chars().filter(|c| !c.is_whitespace()).collect();
-    let mut last = None;
+/// 在“压缩空白 + 小写”后的串中定位 `key=`，返回 value 起点相对串首的偏移。
+///
+/// key 后必须紧跟 `=`；为避免查找 "line" 误命中 "linerule"，要求 key 前一字符
+/// 不是字母数字（若恰为 "rule" 前缀则放行，兼容 lineRule / w:spacing lineRule）。
+/// 多处命中时取最后一处（更贴近实际生效属性）。
+fn find_kv_value_start(compact: &str, key: &str) -> Option<usize> {
+    let mut found = None;
     let mut from = 0usize;
     while let Some(rel) = compact[from..].find(key) {
         let idx = from + rel;
+        let before_ok = if idx == 0 {
+            true
+        } else {
+            let prev = compact[..idx].chars().next_back().unwrap_or(' ');
+            !prev.is_ascii_alphanumeric() || compact[..idx].ends_with("rule")
+        };
         let after = &compact[idx + key.len()..];
-        if let Some(rest) = after.strip_prefix('=') {
-            let val: String = rest.chars().take_while(|c| *c != ';').collect();
-            if !val.is_empty() {
-                last = Some(val);
-            }
+        if before_ok && after.starts_with('=') {
+            found = Some(idx + key.len() + 1);
         }
         from = idx + key.len();
     }
-    last
+    found
 }
 
-/// 提取 `key=value` 中的数值。
+/// 提取 `key=value` 形式的字符串值（大小写不敏感、忽略空格）。
+///
+/// 值以 `;` 或下一个 `字母+=` 键边界截断：例如压缩后的
+/// "linerule=exactline=400" 中查 "linerule" 得到 "exact"，
+/// "…line=400wsz=24…" 中查 "line" 得到 "400"。
+fn extract_key_value(s: &str, key: &str) -> Option<String> {
+    let compact: String = s.to_ascii_lowercase().chars().filter(|c| !c.is_whitespace()).collect();
+    let start = find_kv_value_start(&compact, key)?;
+    let bytes = compact.as_bytes();
+    let mut end = start;
+    while end < bytes.len() {
+        let c = bytes[end] as char;
+        if c == ';' {
+            break;
+        }
+        // 检测下一个键边界：字母开头且随后出现 '='（形如 xxx=）
+        if c.is_ascii_alphabetic() {
+            let mut j = end;
+            while j < bytes.len() && (bytes[j] as char).is_ascii_alphanumeric() {
+                j += 1;
+            }
+            if j < bytes.len() && bytes[j] == b'=' {
+                break;
+            }
+            end = j;
+            continue;
+        }
+        end += 1;
+    }
+    let val = compact[start..end].to_string();
+    if val.is_empty() {
+        None
+    } else {
+        Some(val)
+    }
+}
+
+/// 提取 `key=value` 中的数值（取第一个可解析的数值段）。
 fn extract_key_number(s: &str, key: &str) -> Option<f64> {
-    extract_key_value(s, key).and_then(|v| v.parse::<f64>().ok())
+    let v = extract_key_value(s, key)?;
+    let mut end = 0usize;
+    let bytes = v.as_bytes();
+    while end < bytes.len() && (bytes[end].is_ascii_digit() || bytes[end] == b'.') {
+        end += 1;
+    }
+    v[..end].parse::<f64>().ok().filter(|n| n.is_finite())
 }
 
 /// 去除 OOXML 属性名等技术标记，保留数值与中文（用于兜底清洗）。
@@ -1017,3 +1060,8 @@ mod tests {
         assert!(e.user_message().contains("文件"));
     }
 }
+
+#[doc(hidden)]
+pub fn debug_kv(s: &str) -> Option<String> { extract_key_value(s, "linerule") }
+#[doc(hidden)]
+pub fn debug_line(s: &str) -> Option<f64> { extract_key_number(s, "line") }

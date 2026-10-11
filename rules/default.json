@@ -1,109 +1,129 @@
 {
+  "version": "1.0",
   "name": "本科毕业论文格式规范（示例）",
-  "tolerance": {
-    "font_size_pt": 0.5,
-    "line_spacing_pt": 0.2
+  "description": "面向非技术用户的默认示例规范：正文小四宋体、行距固定值 20 磅等。字段结构与 dsl::RuleConfig 保持一致，可直接被规则引擎加载。",
+  "defaults": {
+    "tolerance": {
+      "font_size_pt": 0.5,
+      "line_spacing_pt": 0.2
+    }
+  },
+  "font_size_aliases": {
+    "三号": 16.0,
+    "四号": 14.0,
+    "小四": 12.0,
+    "五号": 10.5
   },
   "rules": [
     {
       "id": "body-font-size",
-      "description": "正文字号应为小四（12 磅）",
+      "enabled": true,
       "severity": "error",
-      "applies_to": { "kind": "all_body" },
-      "type": "font_size",
-      "expected_pt": 12.0
+      "manual_review": false,
+      "message": "正文字号应为小四（12 磅）",
+      "suggestion": "选中正文，在“开始”选项卡把字号调整为“小四”。",
+      "target": { "roles": ["body"] },
+      "type": "run_font_size",
+      "expected_pt": 12.0,
+      "apply_to": "non_empty_runs"
     },
     {
-      "id": "body-font-family",
-      "description": "中文正文应为宋体，西文应为 Times New Roman",
+      "id": "body-cjk-font",
+      "enabled": true,
       "severity": "error",
-      "applies_to": { "kind": "all_body" },
-      "type": "font_family",
-      "fonts": {
-        "east_asian": "宋体",
-        "ascii": "Times New Roman",
-        "allow_substitutes": ["SimSun", "新宋体"]
-      }
+      "manual_review": false,
+      "message": "中文正文应为宋体",
+      "suggestion": "选中正文，把中文字体设置为“宋体”。",
+      "target": { "roles": ["body"] },
+      "type": "run_font_family",
+      "text_class": "cjk",
+      "expected_fonts": ["宋体", "SimSun"]
+    },
+    {
+      "id": "body-latin-font",
+      "enabled": true,
+      "severity": "error",
+      "manual_review": false,
+      "message": "西文正文应为 Times New Roman",
+      "suggestion": "选中西文和数字部分，把字体设置为 Times New Roman。",
+      "target": { "roles": ["body"] },
+      "type": "run_font_family",
+      "text_class": "latin_or_digit",
+      "expected_fonts": ["Times New Roman"]
     },
     {
       "id": "body-line-spacing",
-      "description": "正文行距应为固定值 20 磅",
+      "enabled": true,
       "severity": "error",
-      "applies_to": { "kind": "all_body" },
+      "manual_review": false,
+      "message": "正文行距应为固定值 20 磅",
+      "suggestion": "段落设置 → 行距选择“固定值”，设为 20 磅。",
+      "target": { "roles": ["body"] },
       "type": "line_spacing",
-      "rule": "exactly",
-      "expected_pt": 20.0
-    },
-    {
-      "id": "heading1-style",
-      "description": "一级标题应使用“标题 1”样式，三号黑体加粗",
-      "severity": "error",
-      "applies_to": { "kind": "heading_level", "value": 1 },
-      "type": "heading_style",
-      "expected": {
-        "level": 1,
-        "style": "Heading1",
-        "font_size_pt": 16.0,
-        "east_asian_font": "黑体",
-        "bold": true
-      }
+      "allowed": [{ "rule": "exact", "min_points": 19.8, "max_points": 20.2 }]
     },
     {
       "id": "heading1-bold",
-      "description": "一级标题必须加粗",
+      "enabled": true,
       "severity": "error",
-      "applies_to": { "kind": "heading_level", "value": 1 },
+      "manual_review": false,
+      "message": "一级标题应加粗",
+      "suggestion": "选中一级标题，点击工具栏的“加粗”按钮。",
+      "target": { "roles": ["heading"], "level": 1 },
       "type": "bold",
       "expected": true
     },
     {
-      "id": "margins",
-      "description": "页边距应为上下 2.54 厘米、左右 3.18 厘米",
-      "severity": "warning",
-      "applies_to": { "kind": "all_body" },
-      "type": "margin",
-      "margins": {
-        "left_pt": 90.0,
-        "right_pt": 90.0,
-        "top_pt": 72.0,
-        "bottom_pt": 72.0,
-        "tolerance_pt": 2.0
+      "id": "page-margins",
+      "enabled": true,
+      "severity": "error",
+      "manual_review": false,
+      "message": "页边距应为上 2.5、下 2.5、左 3、右 2.5 厘米",
+      "suggestion": "布局 → 页边距 → 自定义边距，按上述数值调整。",
+      "type": "page_margins",
+      "expected_cm": {
+        "top_cm": 2.5,
+        "bottom_cm": 2.5,
+        "left_cm": 3.0,
+        "right_cm": 2.5
       }
     },
     {
-      "id": "punctuation",
-      "description": "中文句子中不应出现英文标点",
+      "id": "punctuation-consistency",
+      "enabled": true,
       "severity": "warning",
-      "applies_to": { "kind": "all_body" },
+      "manual_review": false,
+      "message": "中文语境中应使用全角标点",
+      "suggestion": "把句子中的英文逗号、句号等替换为对应的中文标点。",
+      "target": { "roles": ["body", "abstract_body", "heading"] },
       "type": "punctuation",
-      "spec": {
-        "forbidden": [",", ";", "!", "?"],
-        "note": "仅检查紧邻汉字的英文标点"
-      }
+      "mode": "prefer_fullwidth_in_cjk"
     },
     {
       "id": "figure-caption",
-      "description": "图题应按“图章号-序号”编号并居中",
+      "enabled": true,
       "severity": "error",
-      "applies_to": { "kind": "captions" },
-      "type": "caption_number",
-      "spec": {
-        "prefix": "图",
-        "numbering": "chapter-dash",
-        "require_centered": true
-      }
+      "manual_review": false,
+      "message": "图题应按“图 章-序号”编号且位于图片下方",
+      "suggestion": "检查图片下方题注编号是否连续，如 图2-1、图2-2。",
+      "type": "caption",
+      "caption_kind": "figure",
+      "pattern": "^图\\s*\\d+(-\\d+)?",
+      "expected_position": "below_object",
+      "numbering": { "start": 1, "continuous": false, "allow_chapter_prefix": true }
     },
     {
       "id": "table-caption",
-      "description": "表题应按“表章号-序号”编号",
+      "enabled": true,
       "severity": "error",
-      "applies_to": { "kind": "captions" },
-      "type": "caption_number",
-      "spec": {
-        "prefix": "表",
-        "numbering": "chapter-dash",
-        "require_centered": false
-      }
+      "manual_review": false,
+      "message": "表题应按“表 章-序号”编号且位于表格上方",
+      "suggestion": "检查表格上方题注编号是否连续，如 表3-1、表3-2。",
+      "type": "caption",
+      "caption_kind": "table",
+      "pattern": "^表\\s*\\d+(-\\d+)?",
+      "expected_position": "above_object",
+      "numbering": { "start": 1, "continuous": false, "allow_chapter_prefix": true }
     }
   ]
 }

@@ -307,11 +307,9 @@ pub(crate) fn number_follows(prev: &[u32], cur: &[u32], rule: &CaptionNumberingR
         }
         return false;
     }
-    // 长度变化（如 “图1” → “图2-1”）：无法可靠判断，不算跳号
-    if rule.allow_chapter_prefix {
-        return true;
-    }
-    !rule.continuous
+    // 长度变化（如 “图1” → “图2-1”，或反之）：编号体系发生了切换，
+    // 无法可靠判断是否跳号——一律视为“不算跳号”，交由人工复核。
+    true
 }
 
 fn join_num(nums: &[u32]) -> String {
