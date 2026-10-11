@@ -23,8 +23,8 @@
       "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'"
     }
   },
- {
   "bundle": {
-    "targets": ["none"]
+    "active": true,
+    "targets": ["none"],
   }
 }
