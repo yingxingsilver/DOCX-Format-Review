@@ -4,6 +4,7 @@
 -->
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import ReportExport from "./ReportExport.svelte";
 
   let coreVer = $state("检测中…");
 
@@ -14,28 +15,16 @@
   });
 </script>
 
-<main>
-  <h1>论文格式审核系统准备就绪</h1>
-  <p class="sub">批量 DOCX 格式检查 · 本地运行 · 无需联网 · 不使用 AI</p>
-  <p class="status">核心引擎版本：{coreVer}</p>
+<main class="min-h-screen bg-base-200 flex flex-col items-center justify-center gap-6 p-8">
+  <div class="text-center">
+    <h1 class="text-2xl font-bold">论文格式审核系统准备就绪</h1>
+    <p class="opacity-70 mt-2">批量 DOCX 格式检查 · 本地运行 · 无需联网 · 不使用 AI</p>
+    <p class="text-sm text-primary mt-4">核心引擎版本：{coreVer}</p>
+  </div>
+
+  <!-- P6：报告导出面板。审核结果将由批量检查阶段（P5 UI）接入后传入。 -->
+  <div class="w-full max-w-md">
+    <ReportExport />
+  </div>
 </main>
 
-<style>
-  main {
-    font-family: system-ui, "Microsoft YaHei", sans-serif;
-    text-align: center;
-    padding: 4rem 1rem;
-    color: #1f2937;
-  }
-  h1 {
-    font-size: 1.8rem;
-  }
-  .sub {
-    color: #6b7280;
-  }
-  .status {
-    margin-top: 2rem;
-    font-size: 0.9rem;
-    color: #2563eb;
-  }
-</style>
