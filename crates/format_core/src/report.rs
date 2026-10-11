@@ -286,8 +286,9 @@ fn extract_key_value(s: &str, key: &str) -> Option<String> {
     let mut idx = 0usize;
     // 逐个考察 key 在压缩串中的所有出现位置；只接受位于“词边界”上的键。
     while idx + klen <= n {
-        // 手写匹配：避免按字节切片（compact 可能含中文等多字节字符）。
-        if chars[idx..idx + klen] != key_chars[..] {
+        // 手写匹配：避免按字节切片（compact 可能含中文等多字节字符）；
+        // `[char]` 未实现 PartialEq，需逐 char 比较。
+        if !chars[idx..idx + klen].iter().zip(key_chars.iter()).all(|(a, b)| a == b) {
             idx += 1;
             continue;
         }
