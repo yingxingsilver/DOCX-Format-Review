@@ -90,9 +90,13 @@ pub fn plain_term(raw: &str) -> String {
         }
     }
     // 行距固定值：如 "lineRule=exact line=400" → "固定值 20 磅"（line 单位 1/20 磅）。
-    // extract_key_value 已按“下一个 xxx= 键边界”截断取值，无需再手工切 '='。
+    // 注意：OOXML 的 lineRule 取值本身是枚举词（auto / exact / atLeast），
+    // 数字形式（"1"/"4"）只出现在 w:spacing 属性里；这里两种写法都接受。
     if let Some(rule) = extract_key_value(t, "linerule") {
-        if rule == "exact" || rule == "4" || rule == "1" {
+        // OOXML ST_LineSpacingRule 的合法取值只有 auto / exact / atLeast，
+        // 大小写与首尾空白不敏感（属性串可能来自不同序列化实现）。
+        let rl = rule.trim().to_ascii_lowercase();
+        if rl == "exact" || rl == "atleast" || rl == "4" || rl == "1" {
             if let Some(p) = extract_key_number(t, "line") {
                 return format!("固定值 {} 磅", round_pt(p / 20.0));
             }
@@ -170,91 +174,85 @@ fn parse_points(s: &str) -> Option<f64> {
     core.parse::<f64>().ok()
 }
 
-/// 在“压缩空白 + 小写”后的串中定位 `key=`，返回 value 起点相对串首的偏移。
+/// 提取 `key=value` 形式的字符串值（大小写不敏感、忽略空格）。
 ///
-/// 匹配规则：`key` 必须作为一个**完整的键名 token**出现——其后紧跟 `=`，
-/// 且其前面不能紧邻字母/数字（允许串首、`:`、`;` 等分隔符，兼容
-/// `w:spacing` 之类的命名空间前缀写法）。
-///
-/// 这样查 "linerule" 能正确命中 "linerule=exact line=400"（键位于串首）；
-/// 旧实现里的 `compact[..idx].ends_with("rule")` 放行分支会把
-/// "…exactline=400" 中的 'r'/'l' 衔接处误判为合法键边界，导致 linerule
-/// 匹配失败、行距翻译落入兜底清洗只剩数字——现已按完整 token 判定修正。
-/// 同理，查 "line" 不会误命中 "linerule=…"（"line" 之后是 "rule=" 而非 "="）。
-/// 多处命中时取最后一处（更贴近实际生效属性）。
-fn find_kv_value_start(compact: &str, key: &str) -> Option<usize> {
-    let bytes = compact.as_bytes();
-    if key.is_empty() {
-        return None;
-    }
-    let mut found = None;
-    let mut from = 0usize;
-    while let Some(rel) = compact[from..].find(key) {
-        let idx = from + rel;
-        // 键起始处必须是合法字符边界（不把多字节中文的碎片当成键名开头）。
-        let at_boundary = idx == 0 || !is_utf8_cont(byte_at(bytes, idx));
-        // 键前不得紧邻字母/数字；串首或 ':' ';' '_' 等分隔符均可。
-        let before_ok = idx == 0 || {
-            let prev = bytes[idx - 1];
-            !(prev.is_ascii_alphanumeric() || is_utf8_cont(prev))
-        };
-        // 键后必须紧跟 '='。
-        let after_ok = bytes.get(idx + key.len()) == Some(&b'=');
-        if at_boundary && before_ok && after_ok {
-            found = Some(idx + key.len() + 1);
+/// 值的截断规则（关键修复点）：由于压缩空白会把相邻属性粘连
+/// （"lineRule=exact line=400" → "linerule=exactline=400"），
+/// 旧实现“先整体压掉空白再子串查找”会把下一个键名吞进当前值
+/// （得到 "exactline=400"），导致查 "line" 永远失配、行距翻译
+/// 落入兜底清洗只剩数字。现在改为：
+///   - gap 表记录压缩前每个字符之前原本是否有空白；
+///   - 候选键必须出现在原串的词边界上（串首或空白之后）；
+///   - 值扫描遇到 `;` 停止；遇到形如 `xxx=` 的 token 时，仅当该
+///     token 在原串中确实紧跟空白才视为“下一个键”并截断，否则
+///     把它当作值的一部分继续扫描。
+/// 例："lineRule=exact line=400" 中查 "linerule" 得到 "exact"；
+///     查 "line" 得到 "400"。
+fn extract_key_value(s: &str, key: &str) -> Option<String> {
+    // gap[i] == true 表示压缩串第 i 个 char 之前，原串中存在空白。
+    let mut compact = String::with_capacity(s.len());
+    let mut gap: Vec<bool> = Vec::with_capacity(s.len());
+    {
+        let mut pending = false;
+        for c in s.chars() {
+            if c.is_whitespace() {
+                pending = true;
+                continue;
+            }
+            for lc in c.to_ascii_lowercase().to_lowercase() {
+                compact.push(lc);
+                gap.push(pending);
+            }
+            pending = false;
         }
-        from = idx + key.len();
+    }
+    debug_assert_eq!(compact.chars().count(), gap.len());
+    let chars: Vec<char> = compact.chars().collect();
+    let n = chars.len();
+    let mut found: Option<String> = None;
+    let mut idx = 0usize;
+    // 逐个考察 key 在压缩串中的所有出现位置；只接受位于“词边界”上的键。
+    while let Some(rel) = compact[idx..].find(key) {
+        let p = idx + rel; // 键起点（本串全 ASCII，字节数 == 字符数）
+        let before_ok = p == 0 || {
+            // 键前一字符不是字母/数字，或者键本身紧跟在原串空白之后。
+            gap[p] || !(chars[p - 1].is_ascii_alphanumeric())
+        };
+        let after_ok = p + key.len() < n && chars[p + key.len()] == '=';
+        if before_ok && after_ok {
+            let start = p + key.len() + 1;
+            let mut end = start;
+            while end < n {
+                let c = chars[end];
+                if c == ';' {
+                    break;
+                }
+                if c.is_ascii_alphabetic() {
+                    let mut j = end;
+                    while j < n && chars[j].is_ascii_alphanumeric() {
+                        j += 1;
+                    }
+                    // 只有“原串空白之后开始的 xxx=”才算下一个键的边界；
+                    // 粘连进值里的同名片段（如 exact|line=）不算。
+                    if j < n && chars[j] == '=' && (end == start || gap[end]) {
+                        break;
+                    }
+                    end = j.max(end + 1);
+                    continue;
+                }
+                end += 1;
+            }
+            let val: String = chars[start..end].iter().collect();
+            if !val.is_empty() {
+                found = Some(val); // 多处命中取最后一处
+            }
+        }
+        idx = p + key.len();
     }
     found
 }
 
-fn byte_at(bytes: &[u8], idx: usize) -> u8 {
-    bytes[idx]
-}
-
-/// UTF-8 续字节（`0b10xxxxxx`）。
-fn is_utf8_cont(b: u8) -> bool {
-    b & 0xC0 == 0x80
-}
-
-/// 提取 `key=value` 形式的字符串值（大小写不敏感、忽略空格）。
-///
-/// 值以 `;` 或下一个 `字母+=` 键边界截断：例如压缩后的
-/// "linerule=exactline=400" 中查 "linerule" 得到 "exact"，
-/// "…line=400wsz=24…" 中查 "line" 得到 "400"。
-fn extract_key_value(s: &str, key: &str) -> Option<String> {
-    let compact: String = s.to_ascii_lowercase().chars().filter(|c| !c.is_whitespace()).collect();
-    let start = find_kv_value_start(&compact, key)?;
-    let bytes = compact.as_bytes();
-    let mut end = start;
-    while end < bytes.len() {
-        let c = bytes[end] as char;
-        if c == ';' {
-            break;
-        }
-        // 检测下一个键边界：字母开头且随后出现 '='（形如 xxx=）
-        if c.is_ascii_alphabetic() {
-            let mut j = end;
-            while j < bytes.len() && (bytes[j] as char).is_ascii_alphanumeric() {
-                j += 1;
-            }
-            if j < bytes.len() && bytes[j] == b'=' {
-                break;
-            }
-            end = j;
-            continue;
-        }
-        end += 1;
-    }
-    let val = compact[start..end].to_string();
-    if val.is_empty() {
-        None
-    } else {
-        Some(val)
-    }
-}
-
-/// 提取 `key=value` 中的数值（取第一个可解析的数值段）。
+/// 提取 `key=数值` 中的数值（取第一个可解析的数值段）。
 fn extract_key_number(s: &str, key: &str) -> Option<f64> {
     let v = extract_key_value(s, key)?;
     let mut end = 0usize;
