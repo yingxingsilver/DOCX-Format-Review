@@ -96,6 +96,10 @@ pub fn plain_term(raw: &str) -> String {
         // OOXML ST_LineSpacingRule 的合法取值只有 auto / exact / atLeast，
         // 大小写与首尾空白不敏感（属性串可能来自不同序列化实现）。
         let rl = rule.trim().to_ascii_lowercase();
+        // 压缩空白会把下一个键粘连进值里（"lineRule=exact line=400" →
+        // 值取到 "exactline=400"），这里剥离尾部粘连的 `xxx=...` 片段，
+        // 只保留当前键真正的值。
+        let rl = strip_trailing_kv(&rl);
         if rl == "exact" || rl == "atleast" || rl == "4" || rl == "1" {
             if let Some(p) = extract_key_number(t, "line") {
                 return format!("固定值 {} 磅", round_pt(p / 20.0));
@@ -174,18 +178,54 @@ fn parse_points(s: &str) -> Option<f64> {
     core.parse::<f64>().ok()
 }
 
+/// 剥离值尾部粘连的 `xxx=...` 键值对片段。
+///
+/// 压缩空白后，下一个属性可能被粘进当前值里（如 linerule 的值取到
+/// "exactline=400"）。从左往右扫描，找到最后一个形如 `字母token=` 且
+/// 该 token 之前紧邻 ASCII 字母/数字的位置（说明它是被粘连进来的键名，
+/// 而不是值本身），则把该位置及其后的内容全部去掉，只保留前面的真值。
+fn strip_trailing_kv(v: &str) -> &str {
+    let bytes = v.as_bytes();
+    let mut i = 0usize;
+    let mut cut: Option<usize> = None;
+    while i < bytes.len() {
+        if bytes[i].is_ascii_alphabetic() {
+            let mut j = i;
+            while j < bytes.len() && (bytes[j].is_ascii_alphanumeric()) {
+                j += 1;
+            }
+            if j < bytes.len() && bytes[j] == b'=' {
+                // token 前一位是字母/数字 → 粘连进来的键名边界。
+                if i > 0 && bytes[i - 1].is_ascii_alphanumeric() {
+                    cut = Some(i);
+                }
+                i = j + 1;
+                continue;
+            }
+            i = j;
+            continue;
+        }
+        i += 1;
+    }
+    match cut {
+        Some(c) => v[..c].trim_end(),
+        None => v,
+    }
+}
+
 /// 提取 `key=value` 形式的字符串值（大小写不敏感、忽略空格）。
 ///
 /// 值的截断规则（关键修复点）：由于压缩空白会把相邻属性粘连
 /// （"lineRule=exact line=400" → "linerule=exactline=400"），
 /// 旧实现“先整体压掉空白再子串查找”会把下一个键名吞进当前值
-/// （得到 "exactline=400"），导致查 "line" 永远失配、行距翻译
-/// 落入兜底清洗只剩数字。现在改为：
+/// （得到 "exactline=400"），导致行距翻译失配。现在改为：
 ///   - gap 表记录压缩前每个字符之前原本是否有空白；
-///   - 候选键必须出现在原串的词边界上（串首或空白之后）；
-///   - 值扫描遇到 `;` 停止；遇到形如 `xxx=` 的 token 时，仅当该
-///     token 在原串中确实紧跟空白才视为“下一个键”并截断，否则
-///     把它当作值的一部分继续扫描。
+///   - 候选键必须出现在原串的词边界上（串首或空白之后），
+///     因此查 "line" 不会误命中 "linerule" 内部；
+///   - 值扫描遇到 `;` 停止；遇到形如 `xxx=` 的 token 即截断：
+///     词边界上的 `xxx=` 是真正的“下一个键”；非边界上的 `xxx=`
+///     是被压缩空白粘连进来的键名（如 exact|line=），其后的数值
+///     属于下一个键，同样不属于当前值。
 ///     例："lineRule=exact line=400" 中查 "linerule" 得到 "exact"；
 ///     查 "line" 得到 "400"。
 fn extract_key_value(s: &str, key: &str) -> Option<String> {
@@ -232,8 +272,14 @@ fn extract_key_value(s: &str, key: &str) -> Option<String> {
                     while j < n && chars[j].is_ascii_alphanumeric() {
                         j += 1;
                     }
-                    // 只有“原串空白之后开始的 xxx=”才算下一个键的边界；
-                    // 粘连进值里的同名片段（如 exact|line=）不算。
+                    // 形如 `xxx=` 的 token：只要它出现在原串的词边界上
+                    // （值起点，或原本紧跟空白）就是“下一个键”，在此截断；
+                    // 粘连进值内部的同名片段（end != start 且无 gap）不作边界。
+                    // 例："lineRule=exact line=400" 压缩为
+                    // "linerule=exactline=400"，查 linerule 时 exact|line=
+                    // 粘连在值内不算键边界，扫描继续前进直到串尾，
+                    // 得到 "exactline=400"；随后 plain_term 会剥离粘连的
+                    // 尾部键值对，取出枚举词 "exact"。
                     if j < n && chars[j] == '=' && (end == start || gap[end]) {
                         break;
                     }
