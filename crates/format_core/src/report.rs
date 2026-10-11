@@ -861,6 +861,22 @@ pub fn sample_demo_report() -> AuditReport {
 }
 
 // =========================
+// 调试辅助（供外部测试/排查使用）
+// =========================
+
+/// 调试用：提取串中 `linerule=` 的值。
+#[doc(hidden)]
+pub fn debug_kv(s: &str) -> Option<String> {
+    extract_key_value(s, "linerule")
+}
+
+/// 调试用：提取串中 `line=` 的数值。
+#[doc(hidden)]
+pub fn debug_line(s: &str) -> Option<f64> {
+    extract_key_number(s, "line")
+}
+
+// =========================
 // 单元测试
 // =========================
 
