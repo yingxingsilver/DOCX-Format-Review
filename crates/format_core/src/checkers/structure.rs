@@ -177,7 +177,7 @@ fn cn_num_to_u32(s: &str) -> Option<u32> {
         if c == '十' {
             ten = unit.unwrap_or(1) * 10;
             unit = None;
-        } else if let Some((_, v)) = DIGITS.iter().find(|(d, _)| d.chars().next() == Some(c)) {
+        } else if let Some((_, v)) = DIGITS.iter().find(|(d, _)| d.starts_with(c)) {
             unit = Some(*v);
         } else {
             return None;

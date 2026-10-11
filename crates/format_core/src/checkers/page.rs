@@ -91,7 +91,7 @@ pub struct PageMarginsChecker {
 impl PageMarginsChecker {
     /// 面向用户的方位词（“左侧/右侧/上侧/下侧”），比单字“左/右”更通顺。
     fn side_label(name: &str) -> String {
-        if name.chars().next() == Some('首') || name.chars().next() == Some('尾') {
+        if name.starts_with('首') || name.starts_with('尾') {
             format!("{name}页")
         } else {
             format!("{name}侧")
