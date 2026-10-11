@@ -48,7 +48,15 @@ mod tests {
         assert!(style_resolver::placeholder_ok());
         assert!(rules::placeholder_ok());
         assert!(audit::placeholder_ok());
-        assert!(report::placeholder_ok());
+        // P6：report 不再是占位模块，验证真实入口存在。
+        let _: fn(
+            &dsl::AuditReport,
+            &std::path::Path,
+        ) -> error::CoreResult<()> = report::generate_html_report;
+        let _: fn(
+            &dsl::AuditReport,
+            &std::path::Path,
+        ) -> error::CoreResult<()> = report::generate_csv_report;
         // models 已删除（S2）：用 dsl 与 error 的真实类型验证可访问。
         let _ = dsl::Severity::Error.label_cn();
         let _ = error::CoreError::RuleInvalid {
