@@ -2,7 +2,7 @@
 //!
 //! 职责边界：本层只做「命令暴露 + 参数转发」，
 //! 所有 DOCX 解析/审核业务逻辑一律放在 `format_core`，禁止写入前端或本层。
-
+use tauri::Manager;
 mod commands;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
