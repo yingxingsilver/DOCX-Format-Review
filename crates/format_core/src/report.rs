@@ -11,6 +11,7 @@
 //! - 本模块不依赖 Tauri，不做任何网络请求，CSS 全部内联。
 //! - annotated_docx（原文件加高亮副本）为后续阶段功能，未在本阶段引入。
 
+use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::Path;
 
@@ -295,29 +296,43 @@ pub const CSV_HEADERS: [&str; 9] = [
     "原文摘录",
 ];
 
-/// 单个 CSV 字段转义（RFC4180）。
-pub fn csv_escape(field: &str) -> String {
-    if field.is_empty() {
-        return String::new();
-    }
-    let need_quote = field.contains(',') || field.contains('"') || field.contains('\n') || field.contains('\r');
+/// 单个 CSV 字段转义（RFC4180），结果写入 `out`，避免逐字段临时分配。
+fn write_csv_field(out: &mut String, field: &str) {
+    let need_quote = field.contains(',')
+        || field.contains('"')
+        || field.contains('\n')
+        || field.contains('\r');
     if !need_quote {
-        return field.to_string();
+        out.push_str(field);
+        return;
     }
-    let mut s = String::with_capacity(field.len() + 4);
-    s.push('"');
+    out.push('"');
     for c in field.chars() {
         if c == '"' {
-            s.push_str("\"\"");
+            out.push_str("\"\"");
         } else {
-            s.push(c);
+            out.push(c);
         }
     }
-    s.push('"');
-    s
+    out.push('"');
 }
 
-fn csv_row(v: &Violation) -> String {
+/// 将一行字段以 CRLF 结尾写入 `out`。
+fn write_csv_row(out: &mut String, fields: &[&str]) {
+    for (i, f) in fields.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        write_csv_field(out, f);
+    }
+    out.push_str("\r\n");
+}
+
+/// 单条违规 → CSV 九个字段（除文件名/页码/段落号/摘录截断外全部零拷贝借用）。
+fn csv_fields(
+    v: &Violation,
+) -> [String; 9] {
+    let file_name = file_display_name(&v.file_path);
     let page = v
         .location
         .page_hint
@@ -328,9 +343,13 @@ fn csv_row(v: &Violation) -> String {
         .paragraph_index
         .map(|i| (i + 1).to_string())
         .unwrap_or_else(|| "-".into());
-    let excerpt = v.excerpt.as_deref().map(truncate_excerpt).unwrap_or_default();
-    let fields = [
-        file_display_name(&v.file_path),
+    let excerpt = v
+        .excerpt
+        .as_deref()
+        .map(truncate_excerpt)
+        .unwrap_or_default();
+    [
+        file_name,
         page,
         para,
         v.severity.label_cn().to_string(),
@@ -339,15 +358,7 @@ fn csv_row(v: &Violation) -> String {
         v.expected.clone().unwrap_or_default(),
         v.actual.clone().unwrap_or_default(),
         excerpt,
-    ];
-    let mut row = String::new();
-    for (i, f) in fields.iter().enumerate() {
-        if i > 0 {
-            row.push(',');
-        }
-        row.push_str(&csv_escape(f));
-    }
-    row
+    ]
 }
 
 fn file_display_name(path: &std::path::Path) -> String {
@@ -358,40 +369,33 @@ fn file_display_name(path: &std::path::Path) -> String {
 
 /// 渲染完整 CSV 文本（含 UTF-8 BOM，Excel 友好；CRLF 行尾）。
 pub fn render_csv(report: &AuditReport) -> String {
-    let mut out = String::from("\u{feff}");
-    out.push_str(&CSV_HEADERS.map(csv_escape).join(","));
-    out.push_str("\r\n");
+    let mut out = String::with_capacity(64 + report.files.len() * 256);
+    out.push('\u{feff}');
+    // 表头为固定短字段，无需转义，直接内联。
+    out.push_str("文件名,页码估算,段落序号,严重级别,规则ID,问题说明,期望值,实际值,原文摘录\r\n");
     for file in &report.files {
         if file.status == FileStatus::ReadFailed {
             // 读取失败也占一行，方便用户在表格里看到哪些文件没检查成功。
             let msg = file
                 .parse_error
-                .clone()
-                .unwrap_or_else(|| "文件无法读取。".to_string());
+                .as_deref()
+                .unwrap_or("文件无法读取。");
             let fields = [
-                file.file_name.clone(),
-                "-".into(),
-                "-".into(),
-                "错误".into(),
-                "file-unreadable".into(),
+                file.file_name.as_str(),
+                "-",
+                "-",
+                "错误",
+                "file-unreadable",
                 msg,
-                String::new(),
-                String::new(),
-                String::new(),
+                "",
+                "",
+                "",
             ];
-            let mut row = String::new();
-            for (i, f) in fields.iter().enumerate() {
-                if i > 0 {
-                    row.push(',');
-                }
-                row.push_str(&csv_escape(f));
-            }
-            out.push_str(&row);
-            out.push_str("\r\n");
+            write_csv_row(&mut out, &fields);
         }
         for v in &file.violations {
-            out.push_str(&csv_row(v));
-            out.push_str("\r\n");
+            let fields = csv_fields(v);
+            write_csv_row(&mut out, &fields);
         }
     }
     out
@@ -475,8 +479,16 @@ pub fn top_rules_by_severity(report: &AuditReport, limit: usize) -> Vec<(String,
             }
         }
     }
-    let mut rows: Vec<(String, usize, usize)> = map.into_iter().collect();
-    rows.sort_by(|a, b| (b.1, b.0).cmp(&(a.1, a.0)).then_with(|| a.0.cmp(&b.0)));
+    let mut rows: Vec<(String, usize, usize)> = map
+        .into_iter()
+        .map(|(id, (e, w))| (id, e, w))
+        .collect();
+    // 排序：错误数降序 → 警告数降序 → 规则 ID 升序（保证结果确定性）。
+    rows.sort_by(|a, b| {
+        (b.1, b.2)
+            .cmp(&(a.1, a.2))
+            .then_with(|| a.0.cmp(&b.0))
+    });
     rows.truncate(limit);
     rows
 }
@@ -488,8 +500,13 @@ fn rule_explanation(v: &Violation) -> String {
 }
 
 fn render_violation(v: &Violation) -> String {
+    use std::cell::OnceCell;
     let sev = v.severity;
-    let mut s = String::new();
+    // 预分配容量，减少常见报告规模下的反复扩容拷贝。
+    let mut s = String::with_capacity(512);
+    // 技术详情里要用的字符串先惰性计算一次，避免多次 clone/unwrap_or_else 分配。
+    let obj_ref_cell: OnceCell<String> = OnceCell::new();
+    let obj_ref = || obj_ref_cell.get_or_init(|| v.location.object_ref.clone().unwrap_or_default());
     s.push_str(&format!(
         "<div class=\"violation\" data-sev=\"{}\">",
         match sev {
@@ -540,23 +557,19 @@ fn render_violation(v: &Violation) -> String {
         ));
     }
     // 技术详情折叠区：允许出现内部标识（规则ID/置信度/对象引用），默认收起。
-    s.push_str(&format!(
+    let _ = write!(
+        s,
         "<details class=\"tech\"><summary>技术详情（供维护人员排查，普通用户可忽略）</summary>规则编号：{}；置信度：{:.0}%；对象引用：{}</details>",
         escape_html(&v.rule_id),
         v.confidence * 100.0,
-        escape_html(
-            &v.location
-                .object_ref
-                .clone()
-                .unwrap_or_else(|| "无".to_string())
-        )
-    ));
+        escape_html(if obj_ref().is_empty() { "无" } else { obj_ref() })
+    );
     s.push_str("</div>");
     s
 }
 
 fn render_file_card(file: &crate::dsl::FileAuditSummary) -> String {
-    let mut s = String::new();
+    let mut s = String::with_capacity(1024 + file.violations.len() * 512);
     let total = file.error_count + file.warning_count + file.info_count;
     s.push_str(if total > 0 {
         "<details class=\"collapse card file\" open>"
@@ -593,7 +606,14 @@ fn render_file_card(file: &crate::dsl::FileAuditSummary) -> String {
 /// 渲染完整单文件 HTML（导出便于测试与前端预览复用）。
 pub fn render_html(report: &AuditReport) -> String {
     let esc_title = "论文格式审核报告";
-    let mut s = String::new();
+    // 预估总长度，避免反复 realloc；CSS 常量本身就有数 KB。
+    let est = DAISYUI_THEME_VARS_CSS.len()
+        + DAISYUI_COMPONENTS_CSS.len()
+        + REPORT_LAYOUT_CSS.len()
+        + FILTER_SCRIPT.len()
+        + report.files.len() * 1024
+        + 4096;
+    let mut s = String::with_capacity(est);
     s.push_str("<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n");
     s.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
     s.push_str(&format!("<title>{esc_title}</title>\n<style>\n"));
@@ -884,10 +904,18 @@ mod tests {
             "文件名,页码估算,段落序号,严重级别,规则ID,问题说明,期望值,实际值,原文摘录"
         );
         assert!(lines[1].starts_with("示例甲.docx,4,12,错误,body-font-size"));
-        // 逗号/引号转义
+        // 逗号/引号转义（RFC4180）：通过 write_csv_row 直接验证。
+        let mut row = String::new();
+        write_csv_row(&mut row, &["文件", "含\"引号\",和逗号"]);
+        assert_eq!(row, "文件,\"含\"\"引号\"\",和逗号\"\r\n");
+        // csv_fields 对违规的字段映射正确。
         let tricky = mk_violation("t", Severity::Info, "含\"引号\",和逗号", "a,b");
-        let row = csv_row(&tricky);
-        assert!(row.contains("\"含\"\"引号\"\",和逗号\""));
+        let fields = csv_fields(&tricky);
+        assert_eq!(fields[3], "提示");
+        assert_eq!(fields[5], "含\"引号\",和逗号");
+        let mut out2 = String::new();
+        write_csv_row(&mut out2, &fields);
+        assert!(out2.contains("\"含\"\"引号\"\",和逗号\""));
     }
 
     #[test]
