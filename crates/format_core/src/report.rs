@@ -7,11 +7,10 @@
 //!
 //! 约定：
 //! - 所有用户可见文案中文、通俗；不出现 XML 节点名等技术词，
-//!   技术细节只放在“技术详情”折叠区（[`TECH_DETAILS_LABEL`]）。
+//!   技术细节只放在“技术详情”折叠区（[`TECH_DETAILS_LABEL`] 对应的文案）。
 //! - 本模块不依赖 Tauri，不做任何网络请求，CSS 全部内联。
 //! - annotated_docx（原文件加高亮副本）为后续阶段功能，未在本阶段引入。
 
-use std::fmt::Write as _;
 use std::io::Write as _;
 use std::path::Path;
 
@@ -73,47 +72,56 @@ fn write_bytes(path: &Path, content: &[u8]) -> std::io::Result<()> {
 ///
 /// 仅做“能识别就翻译”的温和替换；无法识别的内容原样保留
 /// （Violation 的 expected/actual 由各 Checker 负责产出中文）。
-/// 注意：翻译后的文案保证不含 w: 前缀等技术标记。
+/// 注意：翻译后的文案保证不含 `w:` 前缀等技术标记。
 pub fn plain_term(raw: &str) -> String {
     let t = raw.trim();
     if t.is_empty() {
         return String::new();
     }
+
     // 纯字号表达（"12pt"、"12 磅"、"12"）→ 通俗别名；带其他内容的句子原样清洗。
     // 注意先排除 "key=value" 属性串（如 lineRule=exact line=400），避免把行距值误读成字号。
     if !t.contains('=') {
         if let Some(pts) = parse_points(t) {
             return match font_size_alias_cn(pts) {
-                Some(alias) => format!("{alias}（{}磅）", round_pt(pts)),
+                Some(alias) => format!("{}（{}磅）", alias, round_pt(pts)),
                 None => format!("{} 磅", round_pt(pts)),
             };
         }
     }
+
     // 行距固定值：如 "lineRule=exact line=400" → "固定值 20 磅"（line 单位 1/20 磅）。
-    // 注意：OOXML 的 lineRule 取值本身是枚举词（auto / exact / atLeast），
-    // 数字形式（"1"/"4"）只出现在 w:spacing 属性里；这里两种写法都接受。
+    //
+    // OOXML ST_LineSpacingRule 的合法取值只有 auto / exact / atLeast，
+    // 数字形式（"1"/"4"）只出现在个别序列化实现里；这里两种写法都接受。
     if let Some(rule) = extract_key_value(t, "linerule") {
-        // OOXML ST_LineSpacingRule 的合法取值只有 auto / exact / atLeast，
-        // 大小写与首尾空白不敏感（属性串可能来自不同序列化实现）。
         let rl = rule.trim().to_ascii_lowercase();
-        // 压缩空白会把下一个键粘连进值里（"lineRule=exact line=400" →
-        // 值取到 "exactline=400"），这里剥离尾部粘连的 `xxx=...` 片段，
-        // 只保留当前键真正的值。
-        let rl = strip_trailing_kv(&rl);
-        if rl == "exact" || rl == "atleast" || rl == "4" || rl == "1" {
+
+        // 正常值：exact / atLeast / 4 / 1。
+        // starts_with 用于容忍极端粘连值，例如 "exactline=400"。
+        let fixed_spacing = rl == "exact"
+            || rl == "atleast"
+            || rl.starts_with("exact")
+            || rl.starts_with("atleast")
+            || rl == "4"
+            || rl == "1";
+
+        if fixed_spacing {
             if let Some(p) = extract_key_number(t, "line") {
                 return format!("固定值 {} 磅", round_pt(p / 20.0));
             }
         }
     }
-    // twips 显式出现时翻译为毫米
+
+    // twips 显式出现时翻译为毫米。
     let lower = t.to_ascii_lowercase();
     if lower.contains("twip") {
         if let Some(v) = first_number(t) {
             return format!("约 {:.1} 毫米", v * 25.4 / 1440.0);
         }
     }
-    // 兜底：去掉 OOXML 属性名残留（w:xxx / xxx=），保留数值与中文
+
+    // 兜底：去掉 OOXML 属性名残留（w:xxx / xxx=），保留数值与中文。
     strip_tech_marks(t)
 }
 
@@ -131,30 +139,36 @@ pub fn font_size_alias_cn(pt: f64) -> Option<&'static str> {
         (14.0, "四号"),
         (12.0, "小四"),
     ];
+
     cases
         .iter()
-        .find(|(v, _)| (v - pt).abs() < 0.01)
-        .map(|(_, name)| *name)
+        .find(|case| (case.0 - pt).abs() < 0.01)
+        .map(|case| case.1)
 }
 
 /// 从字符串中提取第一个数值（支持小数）。
 fn first_number(s: &str) -> Option<f64> {
-    let bytes: Vec<char> = s.chars().collect();
+    let chars: Vec<char> = s.chars().collect();
     let mut i = 0usize;
-    while i < bytes.len() {
-        if bytes[i].is_ascii_digit() {
+
+    while i < chars.len() {
+        if chars[i].is_ascii_digit() {
             let start = i;
             let mut seen_dot = false;
-            while i < bytes.len() && (bytes[i].is_ascii_digit() || (bytes[i] == '.' && !seen_dot)) {
-                if bytes[i] == '.' {
+
+            while i < chars.len() && (chars[i].is_ascii_digit() || (chars[i] == '.' && !seen_dot))
+            {
+                if chars[i] == '.' {
                     seen_dot = true;
                 }
                 i += 1;
             }
-            return bytes[start..i].iter().collect::<String>().parse().ok();
+
+            return chars[start..i].iter().collect::<String>().parse().ok();
         }
         i += 1;
     }
+
     None
 }
 
@@ -162,12 +176,22 @@ fn first_number(s: &str) -> Option<f64> {
 ///
 /// 仅当整体是“数字 + 可选单位”时才返回，避免把句子误判成字号。
 fn parse_points(s: &str) -> Option<f64> {
-    let compact = s.to_ascii_lowercase().replace(' ', "");
+    let compact: String = s
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+
+    if compact.is_empty() {
+        return None;
+    }
+
     let core = compact.trim_end_matches("pt").trim_end_matches("磅");
     if core.is_empty() {
         // 只有单位没有数字（如 "pt"）：不是字号表达。
         return None;
     }
+
     if core == compact {
         // 没有任何单位时，也必须整体是数字（如 "12"）。
         if !compact.chars().all(|c| c.is_ascii_digit() || c == '.') || compact.is_empty() {
@@ -175,194 +199,127 @@ fn parse_points(s: &str) -> Option<f64> {
         }
         return compact.parse::<f64>().ok();
     }
+
     core.parse::<f64>().ok()
 }
 
-/// 剥离值尾部粘连的 `xxx=...` 键值对片段。
+/// key/value 分隔符：空白、`;`、`:`、`,` 都视为技术属性串里的分隔边界。
+fn is_kv_delim(c: u8) -> bool {
+    c.is_ascii_whitespace() || c == b';' || c == b':' || c == b','
+}
+
+/// 判断从 `start` 开始的当前 token 内部是否包含 `=`。
 ///
-/// 压缩空白后，下一个属性可能被粘进当前值里（如 linerule 的值取到
-/// "exactline=400"）。从左往右扫描，找到最后一个形如 `字母token=` 且
-/// 该 token 之前紧邻 ASCII 字母/数字的位置（说明它是被粘连进来的键名，
-/// 而不是值本身），则把该位置及其后的内容全部去掉，只保留前面的真值。
-fn strip_trailing_kv(v: &str) -> &str {
-    let bytes = v.as_bytes();
-    let mut i = 0usize;
-    let mut cut: Option<usize> = None;
-    while i < bytes.len() {
-        if bytes[i].is_ascii_alphabetic() {
-            let mut j = i;
-            while j < bytes.len() && (bytes[j].is_ascii_alphanumeric()) {
-                j += 1;
-            }
-            if j < bytes.len() && bytes[j] == b'=' {
-                // token 前一位是字母/数字 → 粘连进来的键名边界。
-                if i > 0 && bytes[i - 1].is_ascii_alphanumeric() {
-                    cut = Some(i);
-                }
-                i = j + 1;
-                continue;
-            }
-            i = j;
-            continue;
+/// 用于识别：
+/// `lineRule= line=400`
+/// 这种“当前 key 没有值，后面其实紧跟另一个 key”的情况，
+/// 避免把后面的 `line=400` 误当成当前 key 的值。
+fn token_contains_eq_before_delim(b: &[u8], start: usize) -> bool {
+    let mut i = start;
+    while i < b.len() && !is_kv_delim(b[i]) {
+        if b[i] == b'=' {
+            return true;
         }
         i += 1;
     }
-    match cut {
-        Some(c) => v[..c].trim_end(),
-        None => v,
-    }
+    false
 }
 
-/// 提取 `key=value` 形式的字符串值（大小写不敏感、忽略空格）。
+/// 提取 `key=value` 形式的字符串值（大小写不敏感、忽略 key 与 `=` 之间的空白）。
 ///
-/// 值的截断规则（关键修复点）：压缩空白会把相邻属性粘连
-/// （"lineRule=exact line=400" → "linerule=exactline=400"），若把
-/// 粘连片段留在值里（"exactline=400"），后续与枚举词 "exact" 的
-/// 比对会失配，行距“固定值 N 磅”翻译随之失效（曾导致报告把
-/// "lineRule=exact line=400" 误显示为裸数字 "400"）。现在：
-///   - gap 表记录压缩前每个字符之前原本是否有空白；prev 表记录压缩
-///     前每个字符在原串中的前一个字符（'-' 等被丢弃的分隔符只能靠
-///     它识别词边界）；
-///   - 候选键必须出现在原串的词边界上（串首、空白之后，或非
-///     ASCII 字母数字/'-' 之后），且键后紧邻 `=`，因此查 "line"
-///     不会误命中 "linerule" 内部；
-///   - 值扫描遇到 `;` 或 `:`（命名空间残留，如 w:）停止；
-///   - 值扫描从 `=` 后第一个非空白字符开始（压缩串保留了“原本有空白”
-///     的信息，用于区分粘连与真实词边界）；扫描到下一个键时截断：
-///     形如 `字母token=` 的片段时：
-///       * 位于词边界（值起点，或原本紧跟空白）→ 是“下一个键”，截断；
-///         例："lineRule=exact line=400" 查 linerule 得到 "exact"。
-///       * 粘连在值内部且 `=` 后以数字开头（如 "exact|line=400"）→
-///         数值属于下一个键，当前真值在粘连 token 的起点结束，截断；
-///       * 其余（如 "exactw=" 之类前缀粘连）→ 视为值的一部分继续扫描，
-///         由 plain_term 里的 strip_trailing_kv / 兜底清洗处理。
-///   - 若值的起点本身就位于词边界且形如 `xxx=`（如 "lineRule= line=400"），
-///     说明当前键没有值，真正的下一段内容属于另一个键：此时不把空串
-///     当作命中，而是把该位置作为候选键重新考察——否则查询 "line" 时，
-///     "linerule" 的前缀会被误当成一次空值命中并吞掉后续文本，导致
-///     真正的 "line=400" 永远扫不到。
-///   - 查 "line" 时，"linerule" 因键后不是 `=` 而被拒绝，
-///     "line=400" 在词边界命中并得到 "400"。
+/// 重构说明：
+/// - 不再把原串空白压缩后再扫描，避免 `lineRule=exact line=400`
+///   被压缩成 `linerule=exactline=400`，从而导致值解析失败。
+/// - 仅在原文字节层做 ASCII 扫描，非 ASCII 内容保持原样。
+/// - 对 `key= nextKey=...` 这种“当前 key 无值”的场景做了显式处理，
+///   不会吞掉后续 key。
 fn extract_key_value(s: &str, key: &str) -> Option<String> {
-    // gap[i] == true 表示压缩串第 i 个 char 之前，原串中存在空白；
-    // prev[i] 为该 char 在原串中的前一个字符（若无则为 None）。
-    let mut compact = String::with_capacity(s.len());
-    let mut gap: Vec<bool> = Vec::with_capacity(s.len());
-    let mut prev: Vec<Option<char>> = Vec::with_capacity(s.len());
-    {
-        let mut pending = false;
-        let mut last: Option<char> = None;
-        for c in s.chars() {
-            if c.is_whitespace() {
-                pending = true;
-                last = Some(c);
-                continue;
-            }
-            for lc in c.to_ascii_lowercase().to_lowercase() {
-                compact.push(lc);
-                gap.push(pending);
-                prev.push(last);
-            }
-            pending = false;
-            last = Some(c);
-        }
+    let key = key.trim().to_ascii_lowercase();
+    if key.is_empty() {
+        return None;
     }
-    debug_assert_eq!(compact.chars().count(), gap.len());
-    debug_assert_eq!(gap.len(), prev.len());
-    let chars: Vec<char> = compact.chars().collect();
-    let n = chars.len();
-    let key_chars: Vec<char> = key.to_ascii_lowercase().chars().collect();
-    let klen = key_chars.len();
-    // 词边界判断：串首 / 原本紧跟空白 / 原串前驱字符既非 ASCII 字母
-    // 数字也非 '-'（'-' 在压缩时被删除，但它说明后面是新 token，
-    // 例如 "before-spacing linerule=..."）。
-    let is_boundary = |i: usize| -> bool {
-        match prev[i] {
-            None => true,
-            Some(pv) => pv.is_whitespace() || !(pv.is_ascii_alphanumeric() || pv == '-'),
-        }
-    };
+
+    let key_bytes = key.as_bytes();
+    let lower = s.to_ascii_lowercase();
+    let b = lower.as_bytes();
+    let n = b.len();
+    let k = key_bytes.len();
+
     let mut found: Option<String> = None;
-    let mut idx = 0usize;
-    // 逐个考察 key 在压缩串中的所有出现位置；只接受位于“词边界”上的键。
-    while idx + klen <= n {
-        // 手写匹配：避免按字节切片（compact 可能含中文等多字节字符）。
-        if chars[idx..idx + klen] != key_chars[..] {
-            idx += 1;
+    let mut pos = 0usize;
+
+    while pos + k <= n {
+        // 1. 先匹配 key 本身。
+        if &b[pos..pos + k] != key_bytes {
+            pos += 1;
             continue;
         }
-        let p = idx; // 键起点
-        let before_ok = is_boundary(p);
-        let after_ok = p + klen < n && chars[p + klen] == '=';
-        if before_ok && after_ok {
-            // 值的起点从 `=` 后第一个非空白字符开始：压缩串保留了
-            // “原本有空白”的信息（gap），据此区分粘连与真实词边界。
-            let mut start = p + klen + 1;
-            while start < n && gap[start] {
-                start += 1;
-            }
-            // 值扫描的截断谓词：token 后紧跟 `=`，且满足其一
-            //   - token 位于词边界 → 是真正的“下一个键”；
-            //   - token 粘连在枚举值尾部但 `=` 后以数字开头（如
-            //     "exact|line=400"）→ 数值属于下一个键，当前值在此结束。
-            // 其余情形（如 "exactw=" 之类命名空间前缀粘连、且值本身以
-            // 字母开头）视为值的一部分，继续扫描，由 strip_trailing_kv /
-            // plain_term 兜底清洗。
-            let value_breaks_at = |end: usize, j: usize| -> bool {
-                if end >= n || !chars[end].is_ascii_alphabetic() {
-                    return false;
-                }
-                if !(j < n && chars[j] == '=') {
-                    return false;
-                }
-                is_boundary(end) || (j + 1 < n && chars[j + 1].is_ascii_digit())
-            };
-            // 空值场景："linerule= line=400"——`=` 后的第一段内容本身
-            // 就是一个新键（原本紧跟空白、位于词边界且形如 `xxx=`）。
-            // 此时当前键没有值，绝不能把该段吞掉，而是从它的起点重新
-            // 考察候选键，让真正的 "line=400" 能被查到。
-            if start < n && gap[start] && is_boundary(start) {
-                let mut j = start;
-                while j < n && chars[j].is_ascii_alphanumeric() {
-                    j += 1;
-                }
-                if j < n && chars[j] == '=' {
-                    idx = start;
-                    continue;
-                }
-            }
-            let mut end = start;
-            while end < n {
-                let c = chars[end];
-                if c == ';' || c == ':' {
-                    break;
-                }
-                if c.is_ascii_alphabetic() {
-                    let mut j = end;
-                    while j < n && chars[j].is_ascii_alphanumeric() {
-                        j += 1;
-                    }
-                    if value_breaks_at(end, j) {
-                        // 词边界上的 `xxx=` 是真正的“下一个键”；粘连在
-                        // 值内部但 `=` 后以数字开头的 `xxx=` 属于被空白
-                        // 粘连进来的下一个键——两种情况当前值都在该
-                        // token 起点处结束。
-                        break;
-                    }
-                    end = j.max(end + 1);
-                    continue;
-                }
-                end += 1;
-            }
-            let val: String = chars[start..end].iter().collect();
-            if !val.is_empty() {
-                found = Some(val); // 多处命中取最后一处
-            }
-            idx = end.max(p + klen);
+
+        // 2. key 必须出现在词边界上。
+        //
+        // 例如查 "line"：
+        // - `line=400`       命中
+        // - `w:line=400`     命中，因为前缀是 `:`
+        // - `baseline=5`     不命中，因为前面是字母 `a`
+        // - `linerule=...`   不命中，因为 key 后面不是 `=`
+        let boundary_ok = pos == 0 || {
+            let prev = b[pos - 1];
+            !(prev.is_ascii_alphanumeric() || prev == b'-')
+        };
+        if !boundary_ok {
+            pos += 1;
             continue;
         }
-        idx = p + klen;
+
+        // 3. key 后允许空白，然后必须是 `=`。
+        let mut eq = pos + k;
+        while eq < n && b[eq].is_ascii_whitespace() {
+            eq += 1;
+        }
+        if eq >= n || b[eq] != b'=' {
+            pos += 1;
+            continue;
+        }
+
+        // 4. 跳过 `=` 后的空白，定位值起点。
+        let mut start = eq + 1;
+        let mut had_ws_after_eq = false;
+        while start < n && b[start].is_ascii_whitespace() {
+            start += 1;
+            had_ws_after_eq = true;
+        }
+
+        // 5. 空值场景：
+        //    `lineRule= line=400`
+        //
+        // 此时 `lineRule` 没有值，不能把后面的 `line=400` 吞掉。
+        // 让下一轮从 `line` 重新开始匹配即可。
+        if had_ws_after_eq && start < n && token_contains_eq_before_delim(b, start) {
+            pos = start;
+            continue;
+        }
+
+        // 6. 值一直读到下一个分隔符。
+        let mut end = start;
+        while end < n && !is_kv_delim(b[end]) {
+            end += 1;
+        }
+
+        if end > start {
+            // lower 和原串字节长度一致（to_ascii_lowercase 只改 ASCII），
+            // 因此 lower 上的字节区间可以用来切原串。
+            if let Some(raw) = s.get(start..end) {
+                let val = raw.trim();
+                if !val.is_empty() {
+                    found = Some(val.to_string());
+                }
+            }
+        }
+
+        // 7. 继续向后找；若有多处命中，保留最后一处，和旧语义一致。
+        pos = end.max(eq + 1);
     }
+
     found
 }
 
@@ -371,19 +328,22 @@ fn extract_key_number(s: &str, key: &str) -> Option<f64> {
     let v = extract_key_value(s, key)?;
     let mut end = 0usize;
     let bytes = v.as_bytes();
+
     while end < bytes.len() && (bytes[end].is_ascii_digit() || bytes[end] == b'.') {
         end += 1;
     }
+
     v[..end].parse::<f64>().ok().filter(|n| n.is_finite())
 }
 
 /// 去除 OOXML 属性名等技术标记，保留数值与中文（用于兜底清洗）。
 ///
-/// 策略：删除全部拉丁字母、`:`、`=`，把 `-` 换成顿号，压缩多余空白。
-/// 例："宋体 SimSun sz=24" → "宋体 24"。
+/// 策略：删除全部拉丁字母、 `:` 、 `=` ，把 `-` 换成顿号，压缩多余空白。
+/// 例：`"宋体 SimSun sz=24"` → `"宋体 24"`。
 fn strip_tech_marks(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut prev_space = true;
+
     for c in s.chars() {
         match c {
             '-' => out.push('、'),
@@ -401,6 +361,7 @@ fn strip_tech_marks(s: &str) -> String {
             }
         }
     }
+
     out.trim().to_string()
 }
 
@@ -419,15 +380,19 @@ fn round_pt(v: f64) -> String {
 
 fn location_human(v: &Violation) -> String {
     let mut parts: Vec<String> = Vec::new();
+
     if let Some(pg) = v.location.page_hint {
         parts.push(format!("大约第 {pg} 页"));
     }
+
     if let Some(pi) = v.location.paragraph_index {
         parts.push(format!("第 {} 段", pi + 1));
     }
+
     if parts.is_empty() {
         parts.push("全文范围".to_string());
     }
+
     parts.join(" · ")
 }
 
@@ -437,6 +402,7 @@ pub fn truncate_excerpt(text: &str) -> String {
     if chars.len() <= EXCERPT_MAX_CHARS {
         return text.to_string();
     }
+
     let mut s: String = chars[..EXCERPT_MAX_CHARS].iter().collect();
     s.push('…');
     s
@@ -449,6 +415,7 @@ pub fn truncate_excerpt(text: &str) -> String {
 /// HTML 文本转义（同时可用于属性值的双引号场景）。
 pub fn escape_html(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 8);
+
     for c in s.chars() {
         match c {
             '&' => out.push_str("&amp;"),
@@ -459,6 +426,7 @@ pub fn escape_html(s: &str) -> String {
             _ => out.push(c),
         }
     }
+
     out
 }
 
@@ -485,14 +453,17 @@ fn write_csv_field(out: &mut String, field: &str) {
         || field.contains('"')
         || field.contains('\n')
         || field.contains('\r');
+
     if !need_quote {
         out.push_str(field);
         return;
     }
+
     out.push('"');
     for c in field.chars() {
         if c == '"' {
-            out.push_str("\"\"");
+            out.push('"');
+            out.push('"');
         } else {
             out.push(c);
         }
@@ -528,6 +499,7 @@ fn csv_fields(v: &Violation) -> [String; 9] {
         .as_deref()
         .map(truncate_excerpt)
         .unwrap_or_default();
+
     [
         file_name,
         page,
@@ -541,7 +513,7 @@ fn csv_fields(v: &Violation) -> [String; 9] {
     ]
 }
 
-/// 将 `[String; N]` 字段数组转为 `&[&str]` 借用视图，供 write_csv_row 零转义写入。
+/// 将 `[String; N]` 字段数组转为 `&[&str]` 借用视图，供 `write_csv_row` 零转义写入。
 fn as_str_refs<const N: usize>(fields: &[String; N]) -> [&str; N] {
     std::array::from_fn(|i| fields[i].as_str())
 }
@@ -556,8 +528,10 @@ fn file_display_name(path: &std::path::Path) -> String {
 pub fn render_csv(report: &AuditReport) -> String {
     let mut out = String::with_capacity(64 + report.files.len() * 256);
     out.push('\u{feff}');
+
     // 表头为固定短字段，无需转义，直接内联。
-    out.push_str("文件名,页码估算,段落序号,严重级别,规则ID,问题说明,期望值,实际值,原文摘录\r\n");
+    write_csv_row(&mut out, &CSV_HEADERS);
+
     for file in &report.files {
         if file.status == FileStatus::ReadFailed {
             // 读取失败也占一行，方便用户在表格里看到哪些文件没检查成功。
@@ -578,11 +552,13 @@ pub fn render_csv(report: &AuditReport) -> String {
             ];
             write_csv_row(&mut out, &fields);
         }
+
         for v in &file.violations {
             let fields = csv_fields(v);
             write_csv_row(&mut out, &as_str_refs(&fields));
         }
     }
+
     out
 }
 
@@ -596,25 +572,25 @@ const DAISYUI_THEME_VARS_CSS: &str = r#":root{color-scheme:light;--in:72.06% 0.1
 
 /// daisyUI 组件子集样式（card/badge/alert/btn/stats/table/collapse 关键规则，
 /// 由 node_modules/daisyui/dist/styled.css 裁剪，类名与 daisyUI 保持一致）。
-const DAISYUI_COMPONENTS_CSS: &str = r#".card{display:flex;flex-direction:column;border-radius:var(--rounded-box,1rem);background-color:var(--fallback-b1,#fff);color:inherit}.card-body{display:flex;flex-direction:column;gap:.5rem;padding:1.5rem;flex:auto}.card-title{display:flex;align-items:center;font-weight:600;font-size:1.1rem}.badge{display:inline-flex;align-items:center;justify-content:center;height:1.25rem;font-size:.8rem;width:fit-content;padding-left:.567rem;padding-right:.567rem;border-width:1px;border-radius:var(--rounded-badge,1.9rem)}.badge-error{border-color:var(--fallback-er,oklch(var(--er)));background-color:var(--fallback-er,oklch(var(--er)));color:var(--fallback-erc,oklch(var(--erc)))}.badge-warning{border-color:var(--fallback-wa,oklch(var(--wa)));background-color:var(--fallback-wa,oklch(var(--wa)));color:var(--fallback-wac,oklch(var(--wac)))}.badge-info{border-color:var(--fallback-in,oklch(var(--in)));background-color:var(--fallback-in,oklch(var(--in)));color:var(--fallback-inc,oklch(var(--inc)))}.badge-success{border-color:var(--fallback-su,oklch(var(--su)));background-color:var(--fallback-su,oklch(var(--su)));color:var(--fallback-suc,oklch(var(--suc)))}.alert{display:flex;align-items:center;gap:.5rem;border-radius:var(--rounded-box,1rem);padding:1rem;background-color:var(--fallback-b2,#fff)}.alert-success{border-color:var(--fallback-su,oklch(var(--su)));background-color:var(--fallback-su,oklch(var(--su)));color:var(--fallback-suc,oklch(var(--suc)))}.alert-warning{border-color:var(--fallback-wa,oklch(var(--wa)));background-color:var(--fallback-wa,oklch(var(--wa)));color:var(--fallback-wac,oklch(var(--wac)))}.alert-error{border-color:var(--fallback-er,oklch(var(--er)));background-color:var(--fallback-er,oklch(var(--er)));color:var(--fallback-erc,oklch(var(--erc)))}.btn{display:inline-flex;flex-wrap:nowrap;align-items:center;justify-content:center;height:3rem;padding-left:1rem;padding-right:1rem;font-size:.875rem;font-weight:600;border-radius:var(--rounded-btn,.5rem);border-width:var(--border-btn,1px);cursor:pointer;color:var(--fallback-bc,oklch(var(--bc)));background-color:var(--fallback-b1,#fff);min-height:2rem}.btn-outline.btn-error{border-color:var(--fallback-er,oklch(var(--er)));color:var(--fallback-er,oklch(var(--er)))}.btn-outline.btn-error.btn-active,.btn-outline.btn-error[aria-pressed="true"]{background-color:var(--fallback-er,oklch(var(--er)));color:var(--fallback-erc,oklch(var(--erc)))}.btn-outline.btn-warning{border-color:var(--fallback-wa,oklch(var(--wa)));color:var(--fallback-wa,oklch(var(--wa)))}.btn-outline.btn-warning.btn-active,.btn-outline.btn-warning[aria-pressed="true"]{background-color:var(--fallback-wa,oklch(var(--wa)));color:var(--fallback-wac,oklch(var(--wac)))}.btn-outline.btn-info{border-color:var(--fallback-in,oklch(var(--in)));color:var(--fallback-in,oklch(var(--in)))}.btn-outline.btn-info.btn-active,.btn-outline.btn-info[aria-pressed="true"]{background-color:var(--fallback-in,oklch(var(--in)));color:var(--fallback-inc,oklch(var(--inc)))}.btn-outline.btn-active,.btn-outline[aria-pressed="true"]{background-color:var(--fallback-bc,oklch(var(--bc)));color:var(--fallback-b1,#fff)}.stats{display:inline-grid;overflow:hidden;border-radius:var(--rounded-box,1rem);grid-flow:column;background-color:#fff}.stat{display:inline-grid;width:100%;padding:1rem 1.5rem;gap:.25rem;border-width:1px}.stat-title{opacity:.6;font-size:.75rem}.stat-value{font-size:1.6rem;font-weight:600;line-height:1.2}.stat-desc{font-size:.75rem;opacity:.75}.table{width:100%;text-align:left;border-radius:var(--rounded-box,1rem);border-collapse:separate;border-spacing:0;font-size:.9rem}.table th,.table td{padding:.6rem .8rem;border-bottom:1px solid #e5e7eb}.table tr:last-child td{border-bottom:0}.collapse{visibility:collapse;border-radius:var(--rounded-box,1rem)}.collapse-title{visibility:visible}.collapse-content{visibility:hidden;overflow:hidden}.collapse-open,.collapse:not(.collapse-close){visibility:visible}.collapse :checked~.collapse-content,[open]>.collapse-content{visibility:visible}details.collapse summary{list-style:none;cursor:pointer}details.collapse summary::-webkit-details-marker{display:none}details.collapse[open] .collapse-content{visibility:visible;padding:0 1rem 1rem}details.collapse .collapse-title{padding:1rem;font-weight:600}"#;
+const DAISYUI_COMPONENTS_CSS: &str = r#".card{display:flex;flex-direction:column;border-radius:var(--rounded-box,1rem);background-color:var(--fallback-b1,#fff);color:inherit}.card-body{display:flex;flex-direction:column;gap:.5rem;padding:1.5rem;flex:auto}.card-title{display:flex;align-items:center;font-weight:600;font-size:1.1rem}.badge{display:inline-flex;align-items:center;justify-content:center;height:1.25rem;font-size:.8rem;width:fit-content;padding-left:.567rem;padding-right:.567rem;border-width:1px;border-radius:var(--rounded-badge,1.9rem)}.badge-error{border-color:var(--fallback-er,oklch(var(--er)));background-color:var(--fallback-er,oklch(var(--er)));color:var(--fallback-erc,oklch(var(--erc)))}.badge-warning{border-color:var(--fallback-wa,oklch(var(--wa)));background-color:var(--fallback-wa,oklch(var(--wa)));color:var(--fallback-wac,oklch(var(--wac)))}.badge-info{border-color:var(--fallback-in,oklch(var(--in)));background-color:var(--fallback-in,oklch(var(--in)));color:var(--fallback-inc,oklch(var(--inc)))}.badge-success{border-color:var(--fallback-su,oklch(var(--su)));background-color:var(--fallback-su,oklch(var(--su)));color:var(--fallback-suc,oklch(var(--suc)))}.alert{display:flex;align-items:center;gap:.5rem;border-radius:var(--rounded-box,1rem);padding:1rem;background-color:var(--fallback-b2,#fff)}.alert-success{border-color:var(--fallback-su,oklch(var(--su)));background-color:var(--fallback-su,oklch(var(--su)));color:var(--fallback-suc,oklch(var(--suc)))}.alert-warning{border-color:var(--fallback-wa,oklch(var(--wa)));background-color:var(--fallback-wa,oklch(var(--wa)));color:var(--fallback-wac,oklch(var(--wac)))}.alert-error{border-color:var(--fallback-er,oklch(var(--er)));background-color:var(--fallback-er,oklch(var(--er)));color:var(--fallback-erc,oklch(var(--erc)))}.btn{display:inline-flex;flex-wrap:nowrap;align-items:center;justify-content:center;height:3rem;padding-left:1rem;padding-right:1rem;font-size:.875rem;font-weight:600;border-radius:var(--rounded-btn,.5rem);border-width:var(--border-btn,1px);cursor:pointer;color:var(--fallback-bc,oklch(var(--bc)));background-color:var(--fallback-b1,#fff);min-height:2rem}.btn-outline.btn-error{border-color:var(--fallback-er,oklch(var(--er)));color:var(--fallback-er,oklch(var(--er)))}.btn-outline.btn-warning{border-color:var(--fallback-wa,oklch(var(--wa)));color:var(--fallback-wa,oklch(var(--wa)))}.btn-outline.btn-info{border-color:var(--fallback-in,oklch(var(--in)));color:var(--fallback-in,oklch(var(--in)))}.stats{display:inline-grid;overflow:hidden;border-radius:var(--rounded-box,1rem);grid-flow:column;background-color:#fff}.stat{display:inline-grid;width:100%;padding:1rem 1.5rem;gap:.25rem;border-width:1px}.stat-title{opacity:.6;font-size:.75rem}.stat-value{font-size:1.6rem;font-weight:600;line-height:1.2}.stat-desc{font-size:.75rem;opacity:.75}.table{width:100%;text-align:left;border-radius:var(--rounded-box,1rem);border-collapse:separate;border-spacing:0;font-size:.9rem}.table th,.table td{padding:.6rem .8rem;border-bottom:1px solid #e5e7eb}.table tr:last-child td{border-bottom:0}.collapse{visibility:collapse;border-radius:var(--rounded-box,1rem)}.collapse-title{visibility:visible}.collapse-content{visibility:hidden;overflow:hidden}.collapse-open,.collapse:not(.collapse-close){visibility:visible}.collapse :checked~.collapse-content,[open]>.collapse-content{visibility:visible}details.collapse summary{list-style:none;cursor:pointer}details.collapse summary::-webkit-details-marker{display:none}details.collapse[open]>.collapse-content{visibility:visible;padding:0 1rem 1rem}details.collapse .collapse-title{padding:1rem;font-weight:600}"#;
 
 /// 报告专属布局与高亮样式（hl-error/hl-warning/hl-info 为需求第 5 条的高亮 class）。
-const REPORT_LAYOUT_CSS: &str = r#"body{margin:0;background:#f3f4f6;color:#111827;font-family:system-ui,"Microsoft YaHei","PingFang SC",sans-serif;line-height:1.6}.wrap{max-width:1080px;margin:0 auto;padding:1.5rem 1rem}h1{font-size:1.5rem;margin:0 0 .25rem}.muted{color:#6b7280;font-size:.85rem}.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));width:100%}.filters{display:flex;gap:.5rem;flex-wrap:wrap;margin:1rem 0}.filters .btn{height:2.2rem;font-size:.8rem}.file{margin-bottom:.75rem;border:1px solid #e5e7eb}.violation{border:1px solid #e5e7eb;border-radius:.5rem;padding:.6rem .8rem;margin:.5rem 0;background:#fff}.violation[data-sev="error"]{border-left:.4rem solid oklch(var(--er))}.violation[data-sev="warning"]{border-left:.4rem solid oklch(var(--wa))}.violation[data-sev="info"]{border-left:.4rem solid oklch(var(--in))}.excerpt{margin-top:.4rem;padding:.3rem .5rem;background:#f9fafb;border-radius:.3rem;font-size:.9rem;word-break:break-all}.hl-error{background:rgba(239,68,68,.35);padding:0 .15rem;border-radius:.2rem}.hl-warning{background:rgba(245,158,11,.4);padding:0 .15rem;border-radius:.2rem}.hl-info{background:rgba(59,130,246,.3);padding:0 .15rem;border-radius:.2rem}.kv{display:grid;grid-template-columns:5em 1fr;gap:.1rem .5rem;font-size:.9rem;margin-top:.3rem}.kv dt{color:#6b7280}.tech{font-size:.8rem;color:#6b7280;margin-top:.4rem}.hidden{display:none!important}.topbar{position:sticky;top:0;background:#f3f4f6ee;z-index:10;padding:.5rem 0}.empty{padding:1rem;text-align:center;color:#6b7280}"#;
+const REPORT_LAYOUT_CSS: &str = r#"body{margin:0;background:#f3f4f6;color:#111827;font-family:system-ui,"Microsoft YaHei","PingFang SC",sans-serif;line-height:1.6}.wrap{max-width:1080px;margin:0 auto;padding:1.5rem 1rem}h1{font-size:1.5rem;margin:0 0 .25rem}.muted{color:#6b7280;font-size:.85rem}.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));width:100%}.filters{display:flex;gap:.5rem;flex-wrap:wrap;margin:1rem 0}.filters .btn{height:2.2rem;font-size:.8rem}.file{margin-bottom:.75rem;border:1px solid #e5e7eb}.violation{border:1px solid #e5e7eb;border-radius:.5rem;padding:.6rem .8rem;margin:.5rem 0;background:#fff}.violation[data-sev="error"]{border-left:.4rem solid oklch(var(--er))}.violation[data-sev="warning"]{border-left:.4rem solid oklch(var(--wa))}.violation[data-sev="info"]{border-left:.4rem solid oklch(var(--in))}.excerpt{margin-top:.4rem;padding:.3rem .5rem;background:#f9fafb;border-radius:.3rem;font-size:.9rem;word-break:break-all}.hl-error{background:rgba(239,68,68,.35);padding:0 .15rem;border-radius:.2rem}.hl-warning{background:rgba(245,158,11,.4);padding:0 .15rem;border-radius:.2rem}.hl-info{background:rgba(59,130,246,.3);padding:0 .15rem;border-radius:.2rem}.kv{display:grid;grid-template-columns:5em 1fr;gap:.1rem .5rem;font-size:.9rem;margin-top:.3rem}.kv dt{color:#6b7280}.tech{font-size:.8rem;color:#6b7280;margin-top:.4rem}.hidden{display:none!important}.empty{padding:1rem;text-align:center;color:#6b7280}"#;
 
 const FILTER_SCRIPT: &str = r#"(function(){
-  var buttons=document.querySelectorAll('[data-filter]');
-  function apply(kind){
-    document.querySelectorAll('.violation').forEach(function(el){
-      el.classList.toggle('hidden', kind!=='all' && el.getAttribute('data-sev')!==kind);
-    });
-    document.querySelectorAll('.filebox').forEach(function(box){
-      if(kind==='all'){box.classList.remove('hidden');return;}
-      var any=box.querySelector('.violation[data-sev="'+kind+'"]:not(.hidden)');
-      box.classList.toggle('hidden', !any);
-    });
-    buttons.forEach(function(b){b.setAttribute('aria-pressed', b.getAttribute('data-filter')===kind?'true':'false');});
-  }
-  buttons.forEach(function(b){b.addEventListener('click',function(){apply(b.getAttribute('data-filter'));});});
+var buttons=document.querySelectorAll('[data-filter]');
+function apply(kind){
+document.querySelectorAll('.violation').forEach(function(el){
+el.classList.toggle('hidden', kind!=='all' && el.getAttribute('data-sev')!==kind);
+});
+document.querySelectorAll('.filebox').forEach(function(box){
+if(kind==='all'){box.classList.remove('hidden');return;}
+var any=box.querySelector('.violation[data-sev="'+kind+'"]:not(.hidden)');
+box.classList.toggle('hidden', !any);
+});
+buttons.forEach(function(b){b.setAttribute('aria-pressed', b.getAttribute('data-filter')===kind?'true':'false');});
+}
+buttons.forEach(function(b){b.addEventListener('click',function(){apply(b.getAttribute('data-filter'));});});
 })();"#;
 
 fn severity_css_class(s: Severity) -> &'static str {
@@ -653,7 +629,9 @@ fn status_badge(s: &FileStatus) -> &'static str {
 
 /// 错误/警告数量 Top 规则统计：(rule_id, 错误数, 警告数)。
 pub fn top_rules_by_severity(report: &AuditReport, limit: usize) -> Vec<(String, usize, usize)> {
-    let mut map: std::collections::HashMap<String, (usize, usize)> = std::collections::HashMap::new();
+    let mut map: std::collections::HashMap<String, (usize, usize)> =
+        std::collections::HashMap::new();
+
     for file in &report.files {
         for v in &file.violations {
             let e = map.entry(v.rule_id.clone()).or_insert((0, 0));
@@ -664,16 +642,19 @@ pub fn top_rules_by_severity(report: &AuditReport, limit: usize) -> Vec<(String,
             }
         }
     }
+
     let mut rows: Vec<(String, usize, usize)> = map
         .into_iter()
         .map(|(id, (e, w))| (id, e, w))
         .collect();
+
     // 排序：错误数降序 → 警告数降序 → 规则 ID 升序（保证结果确定性）。
     rows.sort_by(|a, b| {
         (b.1, b.2)
             .cmp(&(a.1, a.2))
             .then_with(|| a.0.cmp(&b.0))
     });
+
     rows.truncate(limit);
     rows
 }
@@ -685,33 +666,40 @@ fn rule_explanation(v: &Violation) -> String {
 }
 
 fn render_violation(v: &Violation) -> String {
-    use std::cell::OnceCell;
     let sev = v.severity;
+    let sev_attr = match sev {
+        Severity::Error => "error",
+        Severity::Warning => "warning",
+        Severity::Info => "info",
+    };
+
     // 预分配容量，减少常见报告规模下的反复扩容拷贝。
     let mut s = String::with_capacity(512);
-    // 技术详情里要用的字符串先惰性计算一次，避免多次 clone/unwrap_or_else 分配。
-    let obj_ref_cell: OnceCell<String> = OnceCell::new();
-    let obj_ref = || obj_ref_cell.get_or_init(|| v.location.object_ref.clone().unwrap_or_default());
+
     s.push_str(&format!(
         "<div class=\"violation\" data-sev=\"{}\">",
-        match sev {
-            Severity::Error => "error",
-            Severity::Warning => "warning",
-            Severity::Info => "info",
-        }
+        sev_attr
     ));
+
     s.push_str(&format!(
         "<span class=\"{}\">{}</span> <span class=\"muted\">检查项：{}</span>",
         severity_badge(sev),
         sev.label_cn(),
         escape_html(&v.rule_id)
     ));
+
     s.push_str(&format!(
         "<p style=\"margin:.3rem 0 0\">{}</p>",
         escape_html(&rule_explanation(v))
     ));
+
     s.push_str("<dl class=\"kv\">");
-    s.push_str(&format!("<dt>位置</dt><dd>{}</dd>", escape_html(&location_human(v))));
+
+    s.push_str(&format!(
+        "<dt>位置</dt><dd>{}</dd>",
+        escape_html(&location_human(v))
+    ));
+
     if let Some(exp) = &v.expected {
         // Checker 产出的 expected 已是中文（如“小四（12pt）”），这里只做属性名清洗，
         // 不做二次翻译，避免破坏原有措辞。
@@ -720,19 +708,23 @@ fn render_violation(v: &Violation) -> String {
             escape_html(&strip_tech_marks(exp))
         ));
     }
+
     if let Some(act) = &v.actual {
         s.push_str(&format!(
             "<dt>实际格式</dt><dd>{}</dd>",
             escape_html(&strip_tech_marks(act))
         ));
     }
+
     if let Some(sug) = &v.suggestion {
         s.push_str(&format!(
             "<dt>怎么改</dt><dd>{}</dd>",
             escape_html(sug)
         ));
     }
+
     s.push_str("</dl>");
+
     if let Some(ex) = &v.excerpt {
         let cut = truncate_excerpt(ex);
         s.push_str(&format!(
@@ -741,14 +733,22 @@ fn render_violation(v: &Violation) -> String {
             escape_html(&cut)
         ));
     }
+
     // 技术详情折叠区：允许出现内部标识（规则ID/置信度/对象引用），默认收起。
-    let _ = write!(
-        s,
+    let obj_ref = v.location.object_ref.clone().unwrap_or_default();
+    let obj_display = if obj_ref.is_empty() {
+        "无".to_string()
+    } else {
+        obj_ref
+    };
+
+    s.push_str(&format!(
         "<details class=\"tech\"><summary>技术详情（供维护人员排查，普通用户可忽略）</summary>规则编号：{}；置信度：{:.0}%；对象引用：{}</details>",
         escape_html(&v.rule_id),
         v.confidence * 100.0,
-        escape_html(if obj_ref().is_empty() { "无" } else { obj_ref() })
-    );
+        escape_html(&obj_display)
+    ));
+
     s.push_str("</div>");
     s
 }
@@ -756,14 +756,15 @@ fn render_violation(v: &Violation) -> String {
 fn render_file_card(file: &crate::dsl::FileAuditSummary) -> String {
     let mut s = String::with_capacity(1024 + file.violations.len() * 512);
     let total = file.error_count + file.warning_count + file.info_count;
+
     s.push_str(if total > 0 {
         "<details class=\"collapse card file\" open>"
     } else {
         "<details class=\"collapse card file\">"
     });
+
     s.push_str(&format!(
-        "<summary class=\"collapse-title\">{} <span class=\"{}\">{}</span> \
-         <span class=\"muted\">错误 {} · 警告 {} · 提示 {}</span></summary>",
+        "<summary class=\"collapse-title\">{} <span class=\"{}\">{}</span> <span class=\"muted\">错误 {} · 警告 {} · 提示 {}</span></summary>",
         escape_html(&file.file_name),
         status_badge(&file.status),
         status_label_cn(&file.status),
@@ -771,19 +772,24 @@ fn render_file_card(file: &crate::dsl::FileAuditSummary) -> String {
         file.warning_count,
         file.info_count
     ));
+
     s.push_str("<div class=\"collapse-content filebox card-body\">");
+
     if let Some(err) = &file.parse_error {
         s.push_str(&format!(
             "<div class=\"alert alert-error\"><span>{}</span></div>",
             escape_html(err)
         ));
     }
+
     if file.violations.is_empty() && file.parse_error.is_none() {
         s.push_str("<p class=\"empty\">这个文件没有发现问题。</p>");
     }
+
     for v in &file.violations {
         s.push_str(&render_violation(v));
     }
+
     s.push_str("</div></details>");
     s
 }
@@ -791,6 +797,7 @@ fn render_file_card(file: &crate::dsl::FileAuditSummary) -> String {
 /// 渲染完整单文件 HTML（导出便于测试与前端预览复用）。
 pub fn render_html(report: &AuditReport) -> String {
     let esc_title = "论文格式审核报告";
+
     // 预估总长度，避免反复 realloc；CSS 常量本身就有数 KB。
     let est = DAISYUI_THEME_VARS_CSS.len()
         + DAISYUI_COMPONENTS_CSS.len()
@@ -798,10 +805,13 @@ pub fn render_html(report: &AuditReport) -> String {
         + FILTER_SCRIPT.len()
         + report.files.len() * 1024
         + 4096;
+
     let mut s = String::with_capacity(est);
+
     s.push_str("<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n");
     s.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
-    s.push_str(&format!("<title>{esc_title}</title>\n<style>\n"));
+    s.push_str(&format!("<title>{}</title>\n<style>\n", esc_title));
+
     s.push_str(DAISYUI_THEME_VARS_CSS);
     s.push('\n');
     s.push_str(DAISYUI_COMPONENTS_CSS);
@@ -810,22 +820,26 @@ pub fn render_html(report: &AuditReport) -> String {
     s.push_str("\n</style>\n</head>\n<body>\n<div class=\"wrap\">\n");
 
     // —— 顶部摘要 ——
-    s.push_str(&format!("<h1>{esc_title}</h1>\n"));
+    s.push_str(&format!("<h1>{}</h1>\n", esc_title));
     s.push_str(&format!(
         "<p class=\"muted\">生成时间：{} · 审核文件夹：{} · 规则文件：{}</p>\n",
         escape_html(&report.generated_at),
         escape_html(&report.input_dir.display().to_string()),
         escape_html(&report.rule_file.display().to_string())
     ));
+
     s.push_str("<div class=\"stats card\"><div class=\"stat\"><div class=\"stat-title\">共审核</div><div class=\"stat-value\">");
     s.push_str(&report.total_files.to_string());
     s.push_str("</div><div class=\"stat-desc\">篇论文</div></div>");
+
     s.push_str("<div class=\"stat\"><div class=\"stat-title\">通过</div><div class=\"stat-value\">");
     s.push_str(&report.passed_files.to_string());
     s.push_str("</div><div class=\"stat-desc\">没有问题或仅轻微提示</div></div>");
+
     s.push_str("<div class=\"stat\"><div class=\"stat-title\">需要修改</div><div class=\"stat-value\">");
     s.push_str(&report.failed_files.to_string());
     s.push_str("</div><div class=\"stat-desc\">存在格式问题</div></div>");
+
     s.push_str("<div class=\"stat\"><div class=\"stat-title\">读取失败</div><div class=\"stat-value\">");
     s.push_str(&report.read_failed_files.to_string());
     s.push_str("</div><div class=\"stat-desc\">文件损坏或打不开</div></div></div>\n");
@@ -834,7 +848,8 @@ pub fn render_html(report: &AuditReport) -> String {
     if report.total_errors > 0 {
         s.push_str(&format!(
             "<div class=\"alert alert-error\" style=\"margin-top:1rem\"><span>本次共发现 <b>{}</b> 个必须修改的问题、<b>{}</b> 个建议修改的问题。</span></div>",
-            report.total_errors, report.total_warnings
+            report.total_errors,
+            report.total_warnings
         ));
     } else if report.total_warnings > 0 {
         s.push_str(&format!(
@@ -872,21 +887,24 @@ pub fn render_html(report: &AuditReport) -> String {
 
     // —— 文件列表 ——
     s.push_str("<h2 style=\"font-size:1.1rem\">文件明细（点击文件名展开）</h2>\n");
+
     if report.files.is_empty() {
         s.push_str("<p class=\"empty\">没有找到任何论文文件。</p>");
     }
+
     for file in &report.files {
         s.push_str(&render_file_card(file));
         s.push('\n');
     }
 
-    s.push_str(&format!("<script>{FILTER_SCRIPT}</script>\n</div>\n</body>\n</html>\n"));
+    s.push_str(&format!("<script>{}</script>\n</div>\n</body>\n</html>\n", FILTER_SCRIPT));
     s
 }
 
 /// 生成一份演示用报告（供 `examples/gen_report.rs` 与 UI 预览使用）。
 pub fn sample_demo_report() -> AuditReport {
     use crate::dsl::{FileAuditSummary, Location};
+
     let mk = |rule_id: &str,
               sev: Severity,
               file: &str,
@@ -895,26 +913,30 @@ pub fn sample_demo_report() -> AuditReport {
               msg: &str,
               expected: Option<&str>,
               actual: Option<&str>,
-              excerpt: Option<&str>| Violation {
-        rule_id: rule_id.into(),
-        severity: sev,
-        file_path: std::path::PathBuf::from(file),
-        location: Location {
-            section_index: Some(0),
-            block_index: None,
-            paragraph_index: para,
-            run_index: None,
-            page_hint: page,
-            object_ref: None,
-        },
-        message: msg.into(),
-        expected: expected.map(str::to_string),
-        actual: actual.map(str::to_string),
-        excerpt: excerpt.map(str::to_string),
-        suggestion: None,
-        confidence: 0.9,
-        requires_manual_review: false,
+              excerpt: Option<&str>|
+     -> Violation {
+        Violation {
+            rule_id: rule_id.into(),
+            severity: sev,
+            file_path: std::path::PathBuf::from(file),
+            location: Location {
+                section_index: Some(0),
+                block_index: None,
+                paragraph_index: para,
+                run_index: None,
+                page_hint: page,
+                object_ref: None,
+            },
+            message: msg.into(),
+            expected: expected.map(str::to_string),
+            actual: actual.map(str::to_string),
+            excerpt: excerpt.map(str::to_string),
+            suggestion: None,
+            confidence: 0.9,
+            requires_manual_review: false,
+        }
     };
+
     let a = FileAuditSummary {
         file_path: std::path::PathBuf::from("论文甲.docx"),
         file_name: "论文甲.docx".into(),
@@ -923,21 +945,43 @@ pub fn sample_demo_report() -> AuditReport {
         warning_count: 1,
         info_count: 0,
         violations: vec![
-            mk("body-font-size", Severity::Error, "论文甲.docx", Some(4), Some(11),
-               "正文字号不符合要求：应为小四（12磅），当前偏小。",
-               Some("12pt"), Some("10.5pt"),
-               Some("本文围绕深度学习图像识别展开研究，首先介绍了相关背景与国内外研究现状，然后……")),
-            mk("line-spacing", Severity::Error, "论文甲.docx", Some(4), Some(12),
-               "正文行距应为固定值 20 磅。",
-               Some("lineRule=exact line=400"), Some("lineRule=auto line=360"),
-               Some("实验结果表明该方法在准确率上有明显提升。")),
-            mk("heading-level1", Severity::Warning, "论文甲.docx", Some(2), Some(3),
-               "一级标题应使用黑体三号并居中。",
-               Some("黑体、三号（16磅）、居中"), Some("宋体、左对齐"),
-               Some("绪论")),
+            mk(
+                "body-font-size",
+                Severity::Error,
+                "论文甲.docx",
+                Some(4),
+                Some(11),
+                "正文字号不符合要求：应为小四（12磅），当前偏小。",
+                Some("12pt"),
+                Some("10.5pt"),
+                Some("本文围绕深度学习图像识别展开研究，首先介绍了相关背景与国内外研究现状，然后……"),
+            ),
+            mk(
+                "line-spacing",
+                Severity::Error,
+                "论文甲.docx",
+                Some(4),
+                Some(12),
+                "正文行距应为固定值 20 磅。",
+                Some("lineRule=exact line=400"),
+                Some("lineRule=auto line=360"),
+                Some("实验结果表明该方法在准确率上有明显提升。"),
+            ),
+            mk(
+                "heading-level1",
+                Severity::Warning,
+                "论文甲.docx",
+                Some(2),
+                Some(3),
+                "一级标题应使用黑体三号并居中。",
+                Some("黑体、三号（16磅）、居中"),
+                Some("宋体、左对齐"),
+                Some("绪论"),
+            ),
         ],
         parse_error: None,
     };
+
     let b = FileAuditSummary {
         file_path: std::path::PathBuf::from("论文乙.docx"),
         file_name: "论文乙.docx".into(),
@@ -948,6 +992,7 @@ pub fn sample_demo_report() -> AuditReport {
         violations: vec![],
         parse_error: None,
     };
+
     let c = FileAuditSummary {
         file_path: std::path::PathBuf::from("损坏文件.docx"),
         file_name: "损坏文件.docx".into(),
@@ -958,6 +1003,7 @@ pub fn sample_demo_report() -> AuditReport {
         violations: vec![],
         parse_error: Some("无法读取该 Word 文档，文件可能已损坏或被加密。".into()),
     };
+
     AuditReport {
         generated_at: "2026-10-11 12:00:00".into(),
         input_dir: std::path::PathBuf::from("论文"),
@@ -1035,9 +1081,25 @@ mod tests {
 
     /// 需求测试 1：构造包含 3 条违规的 AuditReport。
     fn sample_report() -> AuditReport {
-        let v1 = mk_violation("body-font-size", Severity::Error, "正文字号不符合学校要求：应为小四（12磅）。", "本文围绕深度学习展开研究");
-        let v2 = mk_violation("line-spacing", Severity::Warning, "行距建议使用固定值 20 磅。", "实验结果表明该方法有效，");
-        let v3 = mk_violation("figure-caption", Severity::Info, "图 1-2 的编号与上一章不连续，请人工确认。", "如图 1-2 所示，模型结构分为三层");
+        let v1 = mk_violation(
+            "body-font-size",
+            Severity::Error,
+            "正文字号不符合学校要求：应为小四（12磅）。",
+            "本文围绕深度学习展开研究",
+        );
+        let v2 = mk_violation(
+            "line-spacing",
+            Severity::Warning,
+            "行距建议使用固定值 20 磅。",
+            "实验结果表明该方法有效，",
+        );
+        let v3 = mk_violation(
+            "figure-caption",
+            Severity::Info,
+            "图 1-2 的编号与上一章不连续，请人工确认。",
+            "如图 1-2 所示，模型结构分为三层",
+        );
+
         let file = FileAuditSummary {
             file_path: PathBuf::from("/论文/示例甲.docx"),
             file_name: "示例甲.docx".into(),
@@ -1048,6 +1110,7 @@ mod tests {
             violations: vec![v1, v2, v3],
             parse_error: None,
         };
+
         AuditReport {
             generated_at: "2026-10-11 12:00:00".into(),
             input_dir: PathBuf::from("/论文"),
@@ -1075,19 +1138,35 @@ mod tests {
     #[test]
     fn html_contains_filename_rule_text_and_highlight_classes() {
         let html = render_html(&sample_report());
+
         assert!(html.contains("示例甲.docx"), "缺少文件名");
-        assert!(html.contains("正文字号不符合学校要求"), "缺少规则说明");
+        assert!(
+            html.contains("正文字号不符合学校要求"),
+            "缺少规则说明"
+        );
         assert!(html.contains("hl-error"), "缺少错误高亮 class");
         assert!(html.contains("hl-warning"), "缺少警告高亮 class");
         assert!(html.contains("hl-info"), "缺少提示高亮 class");
         assert!(html.contains("只看错误"), "缺少筛选按钮");
         assert!(html.contains("只看警告"), "缺少筛选按钮");
+
         // XML 节点名等技术词不得外露；技术信息只出现在“技术详情”折叠区。
-        assert!(!html.contains("<w:") && !html.contains("pPr"), "不应外露 XML 节点名");
+        assert!(
+            !html.contains("<w:") && !html.contains("pPr"),
+            "不应外露 XML 节点名"
+        );
         assert!(html.contains("技术详情"));
-        assert!(html.contains("daisyui") || html.contains("--er:"), "缺少 daisyUI 内联主题变量");
+        assert!(
+            html.contains("daisyui") || html.contains("--er:"),
+            "缺少 daisyUI 内联主题变量"
+        );
+
         // 单文件离线：不得引用外部 http 资源
-        assert!(!html.contains("http://") && !html.contains("https://"), "不应联网加载资源");
+        assert!(
+            !html.contains("http://") && !html.contains("https://"),
+            "不应联网加载资源"
+        );
+
         // 页码估算与段落序号（人话化，1-based）
         assert!(html.contains("大约第 4 页"));
         assert!(html.contains("第 12 段"));
@@ -1098,6 +1177,7 @@ mod tests {
     fn csv_has_expected_header_and_rows() {
         let csv = render_csv(&sample_report());
         let lines: Vec<&str> = csv.trim_end_matches("\r\n").split("\r\n").collect();
+
         // 1 表头 + 3 违规
         assert_eq!(lines.len(), 4, "CSV 行数不对: {lines:?}");
         assert_eq!(
@@ -1105,15 +1185,18 @@ mod tests {
             "文件名,页码估算,段落序号,严重级别,规则ID,问题说明,期望值,实际值,原文摘录"
         );
         assert!(lines[1].starts_with("示例甲.docx,4,12,错误,body-font-size"));
+
         // 逗号/引号转义（RFC4180）：通过 write_csv_row 直接验证。
         let mut row = String::new();
         write_csv_row(&mut row, &["文件", "含\"引号\",和逗号"]);
         assert_eq!(row, "文件,\"含\"\"引号\"\",和逗号\"\r\n");
+
         // csv_fields 对违规的字段映射正确。
         let tricky = mk_violation("t", Severity::Info, "含\"引号\",和逗号", "a,b");
         let fields = csv_fields(&tricky);
         assert_eq!(fields[3], "提示");
         assert_eq!(fields[5], "含\"引号\",和逗号");
+
         let mut out2 = String::new();
         write_csv_row(&mut out2, &as_str_refs(&fields));
         assert!(out2.contains("\"含\"\"引号\"\",和逗号\""));
@@ -1132,9 +1215,11 @@ mod tests {
             violations: vec![],
             parse_error: Some("无法读取该 Word 文档，文件可能已损坏。".into()),
         });
+
         let csv = render_csv(&rep);
         assert!(csv.contains("坏文件.docx"));
         assert!(csv.contains("文件可能已损坏"));
+
         let html = render_html(&rep);
         assert!(html.contains("读取失败"));
     }
@@ -1143,6 +1228,7 @@ mod tests {
     fn excerpt_truncated_to_80_chars() {
         let long = "测".repeat(120);
         let cut = truncate_excerpt(&long);
+
         assert_eq!(cut.chars().count(), EXCERPT_MAX_CHARS + 1); // 80 + 省略号
         assert!(cut.ends_with('…'));
     }
@@ -1151,7 +1237,9 @@ mod tests {
     fn html_escapes_injection() {
         let mut rep = sample_report();
         rep.files[0].violations[0].message = "<script>alert(1)</script>".into();
+
         let html = render_html(&rep);
+
         assert!(!html.contains("<script>alert(1)</script>"));
         assert!(html.contains("&lt;script&gt;"));
     }
@@ -1162,19 +1250,30 @@ mod tests {
         assert_eq!(plain_term("12 磅"), "小四（12磅）");
         assert_eq!(plain_term("10.5pt"), "10.5 磅"); // 无别名时给出磅值
         assert_eq!(plain_term("lineRule=exact line=400"), "固定值 20 磅");
+
         // 句子类输入不被误翻译
         assert_eq!(plain_term("宋体加粗，居中"), "宋体加粗，居中");
+
         // 不含技术标记：清洗后不得残留拉丁字母属性名
         let out = plain_term("w:sz=24 w:szCs=24");
-        assert!(!out.contains("w:") && !out.chars().any(|c| c.is_ascii_alphabetic()), "{out}");
+        assert!(
+            !out.contains("w:") && !out.chars().any(|c| c.is_ascii_alphabetic()),
+            "{out}"
+        );
     }
 
     #[test]
     fn top_rules_sorted_by_errors_then_warnings() {
         let mut rep = sample_report();
-        let extra = mk_violation("body-font-size", Severity::Warning, "另一条字号警告", "摘录");
+        let extra = mk_violation(
+            "body-font-size",
+            Severity::Warning,
+            "另一条字号警告",
+            "摘录",
+        );
         rep.files[0].violations.push(extra);
         rep.files[0].warning_count += 1;
+
         let top = top_rules_by_severity(&rep, 5);
         assert_eq!(top[0].0, "body-font-size");
         assert_eq!((top[0].1, top[0].2), (1, 1));
@@ -1184,28 +1283,51 @@ mod tests {
     fn generate_writes_files_to_disk() {
         let dir = tmp_dir("write");
         let rep = sample_report();
+
         let html_path = dir.join("报告.html");
         let csv_path = dir.join("报告.csv");
+
         generate_html_report(&rep, &html_path).unwrap();
         generate_csv_report(&rep, &csv_path).unwrap();
+
         let html = std::fs::read_to_string(&html_path).unwrap();
         assert!(html.contains("论文格式审核报告"));
+
         let csv_bytes = std::fs::read(&csv_path).unwrap();
-        assert_eq!(&csv_bytes[..3], b"\xEF\xBB\xBF", "CSV 应带 UTF-8 BOM");
+        assert_eq!(
+            &csv_bytes[..3],
+            b"\xEF\xBB\xBF",
+            "CSV 应带 UTF-8 BOM"
+        );
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn io_error_context_is_chinese() {
-        let bad = std::path::Path::new("/proc/definitely-not-writable-here/report.html");
-        let e = generate_html_report(&sample_report(), bad)
+        let dir = tmp_dir("io-error");
+
+        // 先创建一个普通文件，然后把它当成目录使用。
+        // 例如：`.../blocker.txt/report.html`
+        // 这时父路径 `.../blocker.txt` 是文件而不是目录，
+        // `create_dir_all` 必然失败，从而稳定触发 CoreError::Io。
+        let blocker = dir.join("blocker.txt");
+        std::fs::write(&blocker, b"block").unwrap();
+
+        let bad = blocker.join("report.html");
+
+        let e = generate_html_report(&sample_report(), &bad)
             .expect_err("写入非法路径应失败");
+
         match e {
             CoreError::Io { ref context, .. } => {
                 assert!(context.contains("写出HTML报告"), "{context}");
             }
             other => panic!("应为 Io 错误，得到 {other:?}"),
         }
+
         assert!(e.user_message().contains("文件"));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
