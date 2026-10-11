@@ -176,12 +176,12 @@ fn parse_points(s: &str) -> Option<f64> {
 /// 且其前面不能紧邻字母/数字（允许串首、`:`、`;` 等分隔符，兼容
 /// `w:spacing` 之类的命名空间前缀写法）。
 ///
-/// 这样查 "linerule" 能正确命中 "linerule=exact line=400"（键位于串首）；
-/// 旧实现里的 `compact[..idx].ends_with("rule")` 放行分支会把
-/// "…exactline=400" 中的 'r'/'l' 衔接处误判为合法键边界，导致 linerule
-/// 匹配失败、行距翻译落入兜底清洗只剩数字——现已按完整 token 判定修正。
-/// 同理，查 "line" 不会误命中 "linerule=…"（"line" 之后是 "rule=" 而非 "="）。
-/// 多处命中时取最后一处（更贴近实际生效属性）。
+/// - 例："lineRule=exact line=400" 中查 "linerule" 得到 "exact"（键位于串首）；
+///   旧实现里的 `compact[..idx].ends_with("rule")` 放行分支会把
+///   "…exactline=400" 中的 'r'/'l' 衔接处误判为合法键边界，导致 linerule
+///   匹配失败、行距翻译落入兜底清洗只剩数字——现已按完整 token 判定修正。
+/// - 同理，查 "line" 不会误命中 "linerule=…"（"line" 之后是 "rule=" 而非 "="）。
+/// - 多处命中时取最后一处（更贴近实际生效属性）。
 fn find_kv_value_start(compact: &str, key: &str) -> Option<usize> {
     let bytes = compact.as_bytes();
     if key.is_empty() {
