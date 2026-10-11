@@ -186,7 +186,7 @@ fn parse_points(s: &str) -> Option<f64> {
 ///   - 值扫描遇到 `;` 停止；遇到形如 `xxx=` 的 token 时，仅当该
 ///     token 在原串中确实紧跟空白才视为“下一个键”并截断，否则
 ///     把它当作值的一部分继续扫描。
-/// 例："lineRule=exact line=400" 中查 "linerule" 得到 "exact"；
+///     例："lineRule=exact line=400" 中查 "linerule" 得到 "exact"；
 ///     查 "line" 得到 "400"。
 fn extract_key_value(s: &str, key: &str) -> Option<String> {
     // gap[i] == true 表示压缩串第 i 个 char 之前，原串中存在空白。
