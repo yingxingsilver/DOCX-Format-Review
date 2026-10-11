@@ -273,6 +273,7 @@ fn compile_anchor_regexes(
 // ---------- 公共小工具（各 checker 复用） ----------
 
 /// 生成一条违规记录（severity/manual_review/suggestion 取自规则本身）。
+#[allow(clippy::too_many_arguments)] // 参数均为构造 Violation 的独立字段，聚合结构体反而降低各 checker 调用可读性
 pub(crate) fn violation_for(
     rule: &Rule,
     doc_path: &std::path::Path,

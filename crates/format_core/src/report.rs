@@ -1071,8 +1071,7 @@ mod tests {
     fn io_error_context_is_chinese() {
         let bad = std::path::Path::new("/proc/definitely-not-writable-here/report.html");
         let e = generate_html_report(&sample_report(), bad)
-            .err()
-            .expect("写入非法路径应失败");
+            .expect_err("写入非法路径应失败");
         match e {
             CoreError::Io { ref context, .. } => {
                 assert!(context.contains("写出HTML报告"), "{context}");
@@ -1082,8 +1081,3 @@ mod tests {
         assert!(e.user_message().contains("文件"));
     }
 }
-
-#[doc(hidden)]
-pub fn debug_kv(s: &str) -> Option<String> { extract_key_value(s, "linerule") }
-#[doc(hidden)]
-pub fn debug_line(s: &str) -> Option<f64> { extract_key_number(s, "line") }
