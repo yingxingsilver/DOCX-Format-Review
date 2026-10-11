@@ -226,7 +226,9 @@ fn strip_trailing_kv(v: &str) -> &str {
 ///   - 候选键必须出现在原串的词边界上（串首、空白之后，或非
 ///     ASCII 字母数字/'-' 之后），且键后紧邻 `=`，因此查 "line"
 ///     不会误命中 "linerule" 内部；
-///   - 值扫描遇到 `;` 或 `:`（命名空间残留，如 w:）停止；遇到
+///   - 值扫描遇到 `;` 或 `:`（命名空间残留，如 w:）停止；
+///   - 值扫描从 `=` 后第一个非空白字符开始（压缩串保留了“原本有空白”
+///     的信息，用于区分粘连与真实词边界）；扫描到下一个键时截断：
 ///     形如 `字母token=` 的片段时：
 ///       * 位于词边界（值起点，或原本紧跟空白）→ 是“下一个键”，截断；
 ///         例："lineRule=exact line=400" 查 linerule 得到 "exact"。
@@ -234,6 +236,11 @@ fn strip_trailing_kv(v: &str) -> &str {
 ///         数值属于下一个键，当前真值在粘连 token 的起点结束，截断；
 ///       * 其余（如 "exactw=" 之类前缀粘连）→ 视为值的一部分继续扫描，
 ///         由 plain_term 里的 strip_trailing_kv / 兜底清洗处理。
+///   - 若值的起点本身就位于词边界且形如 `xxx=`（如 "lineRule= line=400"），
+///     说明当前键没有值，真正的下一段内容属于另一个键：此时不把空串
+///     当作命中，而是把该位置作为候选键重新考察——否则查询 "line" 时，
+///     "linerule" 的前缀会被误当成一次空值命中并吞掉后续文本，导致
+///     真正的 "line=400" 永远扫不到。
 ///   - 查 "line" 时，"linerule" 因键后不是 `=` 而被拒绝，
 ///     "line=400" 在词边界命中并得到 "400"。
 fn extract_key_value(s: &str, key: &str) -> Option<String> {
@@ -275,41 +282,6 @@ fn extract_key_value(s: &str, key: &str) -> Option<String> {
             Some(pv) => pv.is_whitespace() || !(pv.is_ascii_alphanumeric() || pv == '-'),
         }
     };
-    // 值扫描的截断谓词：token 后紧跟 `=`，且满足其一
-    //   - token 位于词边界 → 是真正的“下一个键”；
-    //   - token 粘连在枚举值尾部但 `=` 后以数字开头（如
-    //     "exact|line=400"）→ 数值属于下一个键，当前值在此结束。
-    // 其余情形（如 "exactw=" 之类命名空间前缀粘连、且值本身以
-    // 字母开头）视为值的一部分，继续扫描，由 strip_trailing_kv /
-    // plain_term 兜底清洗。
-    let value_breaks_at = |end: usize, j: usize| -> bool {
-        if end >= n || !chars[end].is_ascii_alphabetic() || !(j < n && chars[j] == '=') {
-            return false;
-        }
-        is_boundary(end) || (j + 1 < n && chars[j + 1].is_ascii_digit())
-    };
-    // 值的起点是否就是“下一个键”（粘连进来的或空格分隔的）：
-    //   - 起点位于词边界且形如 `xxx=`（如 "... lineRule= line=400"）；
-    //   - 或起点是粘连的前缀名（如 w:line 的 "w"），其后紧跟 `:`，
-    //     冒号被跳过后再形如 `xxx=`。
-    // 命中时当前值为空（真正的内容属于下一个键）。
-    let start_is_next_key = |start: usize| -> bool {
-        if start >= n || !chars[start].is_ascii_alphabetic() {
-            return false;
-        }
-        let mut j = start;
-        while j < n && chars[j].is_ascii_alphanumeric() {
-            j += 1;
-        }
-        if j < n && chars[j] == ':' {
-            let mut k = j + 1;
-            while k < n && chars[k].is_ascii_alphanumeric() {
-                k += 1;
-            }
-            return k < n && chars[k] == '=';
-        }
-        is_boundary(start) && j < n && chars[j] == '='
-    };
     let mut found: Option<String> = None;
     let mut idx = 0usize;
     // 逐个考察 key 在压缩串中的所有出现位置；只接受位于“词边界”上的键。
@@ -323,7 +295,42 @@ fn extract_key_value(s: &str, key: &str) -> Option<String> {
         let before_ok = is_boundary(p);
         let after_ok = p + klen < n && chars[p + klen] == '=';
         if before_ok && after_ok {
-            let start = p + klen + 1;
+            // 值的起点从 `=` 后第一个非空白字符开始：压缩串保留了
+            // “原本有空白”的信息（gap），据此区分粘连与真实词边界。
+            let mut start = p + klen + 1;
+            while start < n && gap[start] {
+                start += 1;
+            }
+            // 值扫描的截断谓词：token 后紧跟 `=`，且满足其一
+            //   - token 位于词边界 → 是真正的“下一个键”；
+            //   - token 粘连在枚举值尾部但 `=` 后以数字开头（如
+            //     "exact|line=400"）→ 数值属于下一个键，当前值在此结束。
+            // 其余情形（如 "exactw=" 之类命名空间前缀粘连、且值本身以
+            // 字母开头）视为值的一部分，继续扫描，由 strip_trailing_kv /
+            // plain_term 兜底清洗。
+            let value_breaks_at = |end: usize, j: usize| -> bool {
+                if end >= n || !chars[end].is_ascii_alphabetic() {
+                    return false;
+                }
+                if !(j < n && chars[j] == '=') {
+                    return false;
+                }
+                is_boundary(end) || (j + 1 < n && chars[j + 1].is_ascii_digit())
+            };
+            // 空值场景："linerule= line=400"——`=` 后的第一段内容本身
+            // 就是一个新键（原本紧跟空白、位于词边界且形如 `xxx=`）。
+            // 此时当前键没有值，绝不能把该段吞掉，而是从它的起点重新
+            // 考察候选键，让真正的 "line=400" 能被查到。
+            if start < n && gap[start] && is_boundary(start) {
+                let mut j = start;
+                while j < n && chars[j].is_ascii_alphanumeric() {
+                    j += 1;
+                }
+                if j < n && chars[j] == '=' {
+                    idx = start;
+                    continue;
+                }
+            }
             let mut end = start;
             while end < n {
                 let c = chars[end];
@@ -337,9 +344,9 @@ fn extract_key_value(s: &str, key: &str) -> Option<String> {
                     }
                     if value_breaks_at(end, j) {
                         // 词边界上的 `xxx=` 是真正的“下一个键”；粘连在
-                        // 值内部但值以数字开头的 `xxx=` 属于被空白粘连
-                        // 进来的下一个键——两种情况当前值都在该 token
-                        // 起点处结束。
+                        // 值内部但 `=` 后以数字开头的 `xxx=` 属于被空白
+                        // 粘连进来的下一个键——两种情况当前值都在该
+                        // token 起点处结束。
                         break;
                     }
                     end = j.max(end + 1);
