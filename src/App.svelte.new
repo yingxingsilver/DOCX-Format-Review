@@ -1,0 +1,324 @@
+<!--
+  App.svelte —— P8D 主布局组合根（GUI 完整闭环）。
+  Svelte 5 runes 风格（项目 svelte ^5.57）。
+
+  职责：
+  - 组合全部组件：FilePicker / RuleSelector / ActionPanel / ProgressPanel /
+    ResultTable / ViolationDetail / ExportBar / LogPanel；
+  - 状态机（$status，来自 src/lib/stores.ts 真实后端接线）：
+      idle      → 欢迎 + 使用说明 + 配置区
+      running   → 进度面板，开始按钮禁用（ActionPanel/各选择器均按 status 禁用）
+      done      → 结果摘要 + 结果表 + 违规详情 + 导出工具条
+      error     → 错误提示 + 重试按钮
+      cancelled → 已取消提示 + 部分结果 + 重新审核；
+  - 从状态层读取全局状态，把动作以回调形式下发给子组件；
+  - 不直接调用 Tauri invoke，不含 DOCX 审核业务逻辑；
+  - 面向非技术用户的文案不出现底层技术名词；技术信息统一收敛在
+    「运行详情（可选）」折叠面板（LogPanel）。
+-->
+<script lang="ts">
+  import FilePicker from "./components/FilePicker.svelte";
+  import RuleSelector from "./components/RuleSelector.svelte";
+  import ActionPanel from "./components/ActionPanel.svelte";
+  import ProgressPanel from "./components/ProgressPanel.svelte";
+  import ResultTable from "./components/ResultTable.svelte";
+  import ViolationDetail from "./components/ViolationDetail.svelte";
+  import ExportBar from "./components/ExportBar.svelte";
+  import LogPanel from "./components/LogPanel.svelte";
+  import {
+    status,
+    inputDir,
+    rulePath,
+    files,
+    progress,
+    currentFileName,
+    summary,
+    selectedFile,
+    logs,
+    notice,
+    exporting,
+    lastExports,
+    includeSubdirs,
+    generateAnnotatedDocx,
+    ruleValidation,
+    annotatedFiles,
+    chooseInputDir,
+    chooseRuleFile,
+    resetRule,
+    refreshFileList,
+    startAudit,
+    cancelAudit,
+    clearResults,
+    exportHtml,
+    exportCsv,
+    openReport,
+    openReportFolder,
+    openAnnotatedDocx,
+    openFileAt,
+    selectFile,
+    bindWindowCloseGuard,
+    pathBaseName,
+    type LogLine,
+  } from "./lib/appModel";
+
+  /** 首次挂载：注册窗口关闭兜底守卫（任务运行中退出时通知后端取消）。 */
+  $effect(() => {
+    bindWindowCloseGuard();
+  });
+
+  /** 未选择文件夹时禁用「开始批量审核」。 */
+  const canStart = $derived($inputDir !== null);
+  /** done/cancelled/error 或已有报告时允许清空结果。 */
+  const hasResults = $derived(
+    $status === "done" || $status === "cancelled" || $status === "error" || $summary !== null,
+  );
+  /** 结果表数据源（报告已就绪时）。 */
+  const resultFiles = $derived($summary?.files ?? []);
+  /** 当前选中文件的完整结果（含 parse_error / 计数）。 */
+  const selectedSummary = $derived(
+    $selectedFile ? ($summary?.files.find((f) => f.file_path === $selectedFile) ?? null) : null,
+  );
+  /** 规则文件名（展示用）。 */
+  const ruleFileName = $derived(
+    $rulePath ? pathBaseName($rulePath) : null,
+  );
+  /** 错误态文案：优先最近一次错误提示。 */
+  const errorMessage = $derived(
+    $status === "error" && $notice?.kind === "error" ? $notice.text : null,
+  );
+  /** 日志行（stores.logs 为字符串数组，这里补齐 LogPanel 所需的时间与级别；
+   *  时间戳按序号近似递增，仅用于展示排序，不追求精确到条）。 */
+  let logsRendered: LogLine[] = [];
+  let logsSourceLength = -1;
+  const logLines = $derived(
+    (() => {
+      const list = $logs;
+      if (list.length !== logsSourceLength) {
+        // 长度变化才重建：新行盖当前时间，旧行保留原时间戳。
+        const base = Date.now() - Math.max(list.length - 1, 0);
+        const rebuilt = list.map((message, i) => ({
+          at: logsRendered[i] && logsRendered[i].message === message
+            ? logsRendered[i].at
+            : base + i * 1000 > Date.now()
+              ? Date.now()
+              : base + i * 1000,
+          level: (/无法|失败|出错|异常/.test(message) ? "warn" : "info") as LogLine["level"],
+          message,
+        }));
+        logsRendered = rebuilt;
+        logsSourceLength = list.length;
+      }
+      return logsRendered;
+    })(),
+  );
+
+  /** 拖拽放置回调占位：后续在此接 Tauri 窗口级 drag-drop 的真实路径。 */
+  function handleDropPath(_path: string): void {
+    // TODO(P9): 接入 Tauri onDragDropEvent，拿到真实目录后写入 inputDir 并刷新计数。
+    // 浏览器沙箱下拿不到真实路径时，引导用户走「选择论文文件夹」按钮。
+    void refreshFileList();
+  }
+
+  /** 提示条自动消失（成功 6s / 错误保留到下次操作）。 */
+  $effect(() => {
+    const n = $notice;
+    if (n && n.kind === "success") {
+      const t = setTimeout(() => {
+        if ($notice === n) notice.set(null);
+      }, 6000);
+      return () => clearTimeout(t);
+    }
+  });
+</script>
+
+<div data-theme="light" class="min-h-screen bg-base-200 text-base-content min-w-[1024px] lg:min-w-0">
+  <!-- 顶部 Header -->
+  <header class="bg-base-100 border-b border-base-200">
+    <div class="mx-auto max-w-screen-2xl px-4 py-3 lg:px-6 flex items-start justify-between gap-4">
+      <div>
+        <h1 class="text-xl font-bold text-base-content leading-tight">论文格式批量审核系统</h1>
+        <p class="text-sm text-base-content/60 pt-0.5">
+          离线检查 Word 论文的字号、字体、行距、标题、标点等格式问题
+        </p>
+      </div>
+      <span class="badge badge-lg badge-outline mt-1 shrink-0" role="status">
+        {#if $status === "idle"}准备就绪
+        {:else if $status === "running"}正在检查…
+        {:else if $status === "done"}已完成
+        {:else if $status === "cancelled"}已停止
+        {:else}需要处理{/if}
+      </span>
+    </div>
+  </header>
+
+  <!-- 全局提示条（成功/错误；错误含重试入口） -->
+  {#if $notice}
+    <div class="mx-auto max-w-screen-2xl px-4 lg:px-6 pt-4">
+      <div
+        role={$notice.kind === "error" ? "alert" : "status"}
+        class="alert {$notice.kind === 'error' ? 'alert-error' : 'alert-success'} text-sm"
+      >
+        <span class="flex-1">{$notice.text}</span>
+        {#if $notice.kind === "success"}
+          <button type="button" class="btn btn-sm btn-ghost" onclick={() => notice.set(null)}>
+            知道了
+          </button>
+        {:else}
+          <button type="button" class="btn btn-sm btn-primary" onclick={startAudit}>重试</button>
+          <button type="button" class="btn btn-sm btn-ghost" onclick={() => notice.set(null)}>
+            关闭
+          </button>
+        {/if}
+      </div>
+    </div>
+  {/if}
+
+  <!-- 主体两栏：≥1024px 左右分栏，更窄时上下堆叠 -->
+  <main class="mx-auto max-w-screen-2xl p-4 lg:p-6 grid gap-4 lg:gap-6 grid-cols-1 lg:grid-cols-[380px_minmax(0,1fr)]">
+    <!-- 左栏：任务配置区 -->
+    <div class="flex flex-col gap-4 lg:gap-6">
+      <FilePicker
+        inputDir={$inputDir}
+        status={$status}
+        fileCount={$files.length || null}
+        onChoose={chooseInputDir}
+        onDropPath={handleDropPath}
+      />
+      <RuleSelector
+        ruleFileName={ruleFileName}
+        status={$status}
+        ruleInvalid={$ruleValidation.state === "invalid"}
+        ruleHint={$ruleValidation.message}
+        onChoose={chooseRuleFile}
+        onReset={resetRule}
+      />
+      <ActionPanel
+        status={$status}
+        canStart={canStart}
+        includeSubdirs={$includeSubdirs}
+        generateAnnotatedDocx={$generateAnnotatedDocx}
+        hasResults={hasResults}
+        errorMessage={errorMessage}
+        exportsReady={$status === "done" || $status === "cancelled"}
+        onIncludeSubdirsChange={(v) => includeSubdirs.set(v)}
+        onGenerateAnnotatedChange={(v) => generateAnnotatedDocx.set(v)}
+        onStart={startAudit}
+        onCancel={cancelAudit}
+        onClear={clearResults}
+        onExportHtml={exportHtml}
+        onExportCsv={exportCsv}
+      />
+    </div>
+
+    <!-- 右栏：状态与结果工作区（状态机五态） -->
+    <div class="flex flex-col gap-4 lg:gap-6 min-w-0">
+      {#if $status === "running"}
+        <!-- running：进度面板（禁用开始由各子组件的 status 判断保证） -->
+        <ProgressPanel
+          progress={$progress}
+          currentFileName={$currentFileName}
+          stage="正在逐个检查论文文件"
+          onCancel={cancelAudit}
+        />
+        {#if $logs.length > 0}
+          <LogPanel logs={logLines} />
+        {/if}
+      {:else if $status === "done" || $status === "cancelled"}
+        <!-- done / cancelled：摘要统计 + 导出工具条 + 结果表 + 违规详情 + 运行详情 -->
+        <ExportBar
+          status={$status}
+          hasResults={$summary !== null}
+          exporting={$exporting}
+          htmlPath={$lastExports["html"] ?? null}
+          csvPath={$lastExports["csv"] ?? null}
+          hasAnnotated={$annotatedFiles.length > 0}
+          annotatedCount={$annotatedFiles.length}
+          onExportHtml={exportHtml}
+          onExportCsv={exportCsv}
+          onOpenFile={openFileAt}
+          onOpenFolder={openReportFolder}
+          onOpenAnnotated={openAnnotatedDocx}
+        />
+        {#if resultFiles.length > 0}
+          <ResultTable
+            files={resultFiles}
+            selected={$selectedFile}
+            onSelectFile={selectFile}
+          />
+          <ViolationDetail
+            file={selectedSummary}
+            onClose={() => selectFile(null)}
+          />
+        {/if}
+        <div class="card bg-base-100 border border-base-200 shadow-sm">
+          <div class="card-body gap-3 py-4 flex-row items-center justify-between flex-wrap">
+            <p class="text-sm text-base-content/70">
+              {$status === "cancelled"
+                ? "本次检查已停止，以上为已完成部分的结果。"
+                : "如需更换文件夹或规则再查一遍，可重新开始。"}
+            </p>
+            <div class="flex gap-2">
+              <button type="button" class="btn btn-primary btn-sm" onclick={startAudit}>
+                重新审核
+              </button>
+              <button type="button" class="btn btn-ghost btn-sm" onclick={openReport}>
+                打开 HTML 报告
+              </button>
+            </div>
+          </div>
+        </div>
+        <LogPanel logs={logLines} />
+      {:else if $status === "error"}
+        <!-- error：错误说明 + 重试 -->
+        <section class="card bg-base-100 border border-base-200 shadow-sm">
+          <div class="card-body gap-4">
+            <div role="alert" class="alert alert-error">
+              <div>
+                <h2 class="font-semibold">这次检查没有完成</h2>
+                <p class="text-sm pt-1">{errorMessage ?? "请根据上方提示调整后重试。"}</p>
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <button type="button" class="btn btn-primary" onclick={startAudit}>重试</button>
+              <button type="button" class="btn btn-ghost" onclick={clearResults}>返回配置</button>
+            </div>
+          </div>
+        </section>
+        {#if $logs.length > 0}
+          <LogPanel logs={logLines} />
+        {/if}
+      {:else}
+        <!-- idle：欢迎 + 首次使用说明 -->
+        <section class="card bg-base-100 border border-base-200 shadow-sm">
+          <div class="card-body gap-4">
+            <h2 class="card-title text-lg font-semibold text-base-content">
+              欢迎使用论文格式批量审核系统
+            </h2>
+            <div role="status" class="alert alert-info text-sm">
+              <div>
+                <p class="font-medium">将论文文件夹拖入或点击选择，系统会离线检查格式。</p>
+                <ol class="list-decimal list-inside pt-2 space-y-1 text-base-content/80">
+                  <li>在左侧选择存放论文 Word 文件（.docx）的文件夹；</li>
+                  <li>确认格式规则（可不改，使用内置通用规则）；</li>
+                  <li>点击「开始批量审核」，稍候查看结果；</li>
+                  <li>在右侧导出 HTML 报告或 CSV 清单，并可直接打开查看。</li>
+                </ol>
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <span class="badge badge-info badge-outline gap-1 py-3 px-3">批量处理</span>
+              <span class="badge badge-success badge-outline gap-1 py-3 px-3">全程离线，文件不外传</span>
+              <span class="badge badge-warning badge-outline gap-1 py-3 px-3">中文报告</span>
+            </div>
+          </div>
+        </section>
+      {/if}
+    </div>
+  </main>
+
+  <footer class="mx-auto max-w-screen-2xl px-4 lg:px-6 pb-6">
+    <p class="text-xs text-base-content/40">
+      检查结果仅供参考，提交前请以学校最新格式规范和老师意见为准。
+    </p>
+  </footer>
+</div>

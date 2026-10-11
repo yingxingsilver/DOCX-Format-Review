@@ -120,13 +120,32 @@ export async function exportReport(
   }
 }
 
-/** 用系统默认程序打开文件或文件夹（如打开报告 HTML）。 */
+/** 用系统默认程序打开文件或文件夹（如打开报告 HTML / 标注版 DOCX / 所在文件夹）。 */
 export async function openPathInShell(path: string): Promise<ApiResult<null>> {
   try {
     await openPath(path);
     return { ok: true, data: null };
   } catch (e) {
-    return { ok: false, user_message: "无法打开该位置：" + toUserMessage(e) };
+    // opener 权限不足时 Tauri 会抛 "Not allowed"：给出可操作的中文提示，绝不崩溃。
+    const raw = toUserMessage(e);
+    if (/not allowed|permission|denied/i.test(raw)) {
+      return {
+        ok: false,
+        user_message:
+          "系统权限设置阻止了自动打开文件。请手动前往上面的保存位置查看（可在文件管理器中输入该路径）。",
+      };
+    }
+    return { ok: false, user_message: "无法打开该位置：" + raw };
+  }
+}
+
+/** 校验规则文件是否可用；成功返回规则名称。 */
+export async function validateRuleFile(path: string): Promise<ApiResult<string>> {
+  try {
+    const name = await invoke<string>("validate_rule_file", { path });
+    return { ok: true, data: name };
+  } catch (e) {
+    return { ok: false, user_message: toUserMessage(e) };
   }
 }
 

@@ -1123,7 +1123,11 @@ impl RuleConfig {
 // =========================
 
 /// 违规位置。文档级问题各字段可为 None。
+///
+/// P8D：`#[serde(default)]` 允许 GUI 把报告序列化成 JSON 再回传给导出命令时
+/// 省略缺失字段（前端 types.ts 中这些字段为可空，序列化时可能整体缺省）。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Location {
     pub section_index: Option<usize>,
     pub block_index: Option<usize>,
@@ -1134,7 +1138,10 @@ pub struct Location {
 }
 
 /// 一条格式问题。message 必须中文、面向非技术人员；禁止出现 XML 节点名等技术词。
+///
+/// P8D：字段全部 `#[serde(default)]`，容忍 GUI 回传的部分缺省 JSON（见 [Location] 注释）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Violation {
     pub rule_id: String,
     pub severity: Severity,
@@ -1151,9 +1158,10 @@ pub struct Violation {
 }
 
 /// 单个文件的审核状态。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FileStatus {
+    #[default]
     Passed,
     NeedsRevision,
     ReadFailed,
@@ -1161,6 +1169,7 @@ pub enum FileStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct FileAuditSummary {
     pub file_path: PathBuf,
     pub file_name: String,
@@ -1175,6 +1184,7 @@ pub struct FileAuditSummary {
 
 /// 批量审核总报告。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AuditReport {
     pub generated_at: String,
     pub input_dir: PathBuf,

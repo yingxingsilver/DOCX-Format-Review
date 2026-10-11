@@ -89,6 +89,18 @@ export interface FileMeta {
 export interface AuditOptions {
   input_dir: string;
   rule_file: string;
+  /** 是否包含子文件夹（核心层当前始终递归，此字段为界面意图透传）。 */
+  include_subdirs?: boolean;
+  /** 是否为有问题的文件生成黄色高亮标注副本。 */
+  generate_annotated_docx?: boolean;
+}
+
+/** 单个文件的标注副本生成结果（对应 Rust `AnnotatedOutcome`）。 */
+export interface AnnotatedOutcome {
+  file_path: string;
+  ok: boolean;
+  /** 成功时为副本路径说明；失败时为中文原因。 */
+  message: string;
 }
 
 /**
