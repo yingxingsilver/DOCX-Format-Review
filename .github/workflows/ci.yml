@@ -15,7 +15,6 @@ on:
         required: false
         default: ''
 
-# ★ 显式声明权限：允许 Workflow 推送 Tag 和创建 Release
 permissions:
   contents: write
   packages: read
@@ -24,7 +23,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # ── 核心引擎：仅检查/测试 format_core，不依赖 GUI 系统库 ──
+  # ── 核心引擎：仅检查/测试 format_core ──
   core:
     name: 核心引擎 (format_core)
     runs-on: ubuntu-latest
@@ -77,7 +76,7 @@ jobs:
           path: dist
           retention-days: 7
 
-  # ── Tauri 后端：需要 webkit 系统依赖，只做编译检查 ──
+  # ── Tauri 后端编译检查 ──
   tauri-build:
     name: Tauri 后端编译
     runs-on: ubuntu-22.04
@@ -103,9 +102,9 @@ jobs:
       - name: 编译 src-tauri（含测试目标）
         run: cargo check -p paper-format-auditor --manifest-path src-tauri/Cargo.toml --all-targets
 
-  # ── 发布构建：打 v* tag 或 手动勾选时产出三平台安装包 ──
+  # ── 发布构建：只产出裸可执行文件，不生成安装包 ──
   release:
-    name: 打包发布 (${{ matrix.platform }} ${{ matrix.args }})
+    name: 构建 EXE (${{ matrix.platform }})
     if: >-
       startsWith(github.ref, 'refs/tags/v') || 
       (github.event_name == 'workflow_dispatch' && inputs.do_release == true)
@@ -115,13 +114,15 @@ jobs:
       matrix:
         include:
           - platform: ubuntu-22.04
-            args: ""
+            artifact: paper-format-auditor
           - platform: windows-latest
-            args: ""
+            artifact: paper-format-auditor.exe
           - platform: macos-latest
-            args: "--target aarch64-apple-darwin"
+            artifact: paper-format-auditor
+            target: aarch64-apple-darwin
           - platform: macos-latest
-            args: "--target x86_64-apple-darwin"
+            artifact: paper-format-auditor
+            target: x86_64-apple-darwin
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 60
     steps:
@@ -137,12 +138,6 @@ jobs:
             patchelf build-essential curl wget file libxdo-dev \
             libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
-      # ★ WiX 修复：Windows Runner 默认未启用 .NET Framework 3.5，WiX3 light.exe 必需
-      - name: 安装 WiX 依赖 (.NET Framework 3.5)
-        if: matrix.platform == 'windows-latest'
-        run: |
-          dism /online /enable-feature /featurename:NetFx3 /all /norestart
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -150,34 +145,20 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.target || '' }}
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "."
-          key: release-${{ matrix.platform }}${{ matrix.args }}
+          key: release-${{ matrix.platform }}${{ matrix.target || '' }}
           cache-all-crates: "true"
 
-      - name: 安装前端依赖
-        run: npm ci
-
-      # ★ 修复 WiX light.exe 失败：启用 .NET Framework 3.5（WiX3 运行时依赖）
-      - name: Enable .NET Framework 3.5 (for WiX3)
-        if: matrix.platform == 'windows-latest'
-        shell: powershell
+      - name: 安装前端依赖并构建
         run: |
-          Write-Host "Enabling .NET Framework 3.5..."
-          dism /online /enable-feature /featurename:NetFx3 /all /norestart
-          # 验证安装成功
-          $installed = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v3.5").Install
-          if ($installed -eq 1) {
-            Write-Host "✅ .NET Framework 3.5 enabled successfully"
-          } else {
-            Write-Error "❌ Failed to enable .NET Framework 3.5"
-            exit 1
-          }
+          npm ci
+          npm run build
 
-      # ★ Tag 幂等创建：避免重复触发时报错
+      # ★ Tag 幂等创建
       - name: 为手动触发创建临时 Tag
         if: github.event_name == 'workflow_dispatch' && inputs.version_tag != ''
         shell: bash
@@ -192,13 +173,26 @@ jobs:
             echo "⚠️ Tag ${{ inputs.version_tag }} already exists, skipping"
           fi
 
-      - name: Tauri 构建并发布到 GitHub Releases
+      # ★ 使用 tauri-action 但 targets:["none"] 使其只编译不打包
+      - name: Tauri Build (EXE only)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          args: ${{ matrix.args }}
           tagName: ${{ github.event_name == 'workflow_dispatch' && inputs.version_tag != '' && inputs.version_tag || github.ref_name }}
           releaseName: "App ${{ github.event_name == 'workflow_dispatch' && inputs.version_tag != '' && inputs.version_tag || github.ref_name }}"
-          releaseBody: "由 GitHub Actions 自动构建 | Commit: ${{ github.sha }}"
+          releaseBody: "由 GitHub Actions 自动构建 (仅可执行文件) | Commit: ${{ github.sha }}"
           releaseDraft: true
+          args: ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+
+      # ★ tauri-action 在 targets:["none"] 时不会自动上传产物，需手动上传
+      - name: 上传可执行文件到 Release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.version_tag != '' && inputs.version_tag || github.ref_name }}
+          draft: true
+          append_body: true
+          files: |
+            src-tauri/target/${{ matrix.target && format('{0}/', matrix.target) || '' }}release/${{ matrix.artifact }}
