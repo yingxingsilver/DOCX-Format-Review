@@ -74,21 +74,40 @@ mod tests {
     }
 
     /// 非法 JSON 必须得到中文、含引导语的错误，而不是 panic。
+    ///
+    /// `export_report` 是 async 命令，但全部校验逻辑在任何 await 点之前完成，
+    /// 因此手动 poll 一次即为 Ready——测试不引入 tokio 等运行时依赖。
     #[test]
     fn export_report_rejects_bad_json_with_chinese_hint() {
-        // 反序列化在函数体首行完成（同步），可直接用阻塞方式驱动 future 到 Ready。
-        let mut fut = std::pin::pin!(export_report(
-            "{ 坏数据".into(),
-            "/tmp/不应被写入.html".into(),
+        use std::future::Future;
+        use std::task::{Context, Poll, Waker};
+
+        let out_path = std::env::temp_dir().join("paper_audit_不应被写入.html");
+        let _ = std::fs::remove_file(&out_path);
+
+        let fut = export_report(
+            "{ 坏数据".to_string(),
+            out_path.to_string_lossy().to_string(),
             ReportFormat::Html,
-        ));
-        let waker = std::task::Waker::noop();
-        let mut cx = std::task::Context::from_waker(waker);
-        let err = match fut.as_mut().poll(&mut cx) {
-            std::task::Poll::Ready(Err(e)) => e,
-            _ => panic!("参数错误应同步返回 Err"),
+        );
+
+        // 把 future 固定到堆上再轮询到完成（无 unsafe）。
+        let mut boxed: std::pin::Pin<Box<dyn Future<Output = Result<String, String>>>> =
+            Box::pin(fut);
+        let waker = Waker::noop();
+        let mut cx = Context::from_waker(waker);
+        let err = loop {
+            match boxed.as_mut().poll(&mut cx) {
+                Poll::Ready(Ok(v)) => panic!("期望 Err，却成功返回：{v}"),
+                Poll::Ready(Err(e)) => break e,
+                Poll::Pending => continue, // 实际不会发生：函数体内无真实异步等待
+            }
         };
+
         assert!(err.contains("审核结果数据有误"), "{err}");
-        assert!(!std::path::Path::new("/tmp/不应被写入.html").exists());
+        assert!(
+            !out_path.exists(),
+            "参数校验失败时不应写出任何报告文件"
+        );
     }
 }
