@@ -198,8 +198,8 @@ fn find_kv_value_start(compact: &str, key: &str) -> Option<usize> {
             let prev = bytes[idx - 1];
             !(prev.is_ascii_alphanumeric() || is_utf8_cont(prev))
         };
-        let after_ok = matches!(bytes.get(idx + key.len()), Some(b'=') | Some(b':'))
-            && bytes.get(idx + key.len()) == Some(&b'=');
+        // 键后必须紧跟 '='。
+        let after_ok = bytes.get(idx + key.len()) == Some(&b'=');
         if at_boundary && before_ok && after_ok {
             found = Some(idx + key.len() + 1);
         }

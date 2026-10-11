@@ -328,8 +328,6 @@ fn scan_document(xml: &[u8]) -> CoreResult<DocScan> {
                     }
                     _ => {}
                 }
-                    _ => {}
-                }
             }
             _ => {}
         }
@@ -495,15 +493,22 @@ fn rewrite_document(xml: &[u8], targets: &Targets, color: &str) -> CoreResult<(V
     let mut in_rpr_of_hit = false;
     let mut highlighted = 0usize;
     let mut already = 0usize;
+    // 通用标签深度：EOF 时必须归零，否则存在未闭合标签（与 scan_document
+    // 同一套检出逻辑，防止产出损坏的标注副本）。
+    let mut depth = 0usize;
 
     loop {
         let ev = reader.read_event().map_err(xml_err)?;
         match ev {
             Event::Eof => {
+                if depth != 0 {
+                    return Err(unclosed_tag_err(depth));
+                }
                 writer.write_event(Event::Eof).map_err(xml_err)?;
                 break;
             }
             Event::Start(ref s) if local_name(s.name().as_ref()) == "p" => {
+                depth += 1;
                 cur_para_key = Some(all_para);
                 all_para += 1;
                 run_in_para = 0;
@@ -513,10 +518,12 @@ fn rewrite_document(xml: &[u8], targets: &Targets, color: &str) -> CoreResult<(V
                 writer.write_event(ev).map_err(xml_err)?;
             }
             Event::Start(ref s) if local_name(s.name().as_ref()) == "tbl" => {
+                depth += 1;
                 table_depth += 1;
                 writer.write_event(ev).map_err(xml_err)?;
             }
             Event::Start(ref s) if local_name(s.name().as_ref()) == "r" => {
+                depth += 1;
                 let hit = cur_para_key
                     .and_then(|k| targets.get(&k))
                     .is_some_and(|runs| runs.contains(&run_in_para));
@@ -527,10 +534,17 @@ fn rewrite_document(xml: &[u8], targets: &Targets, color: &str) -> CoreResult<(V
                 writer.write_event(ev).map_err(xml_err)?;
             }
             Event::Start(ref s) if local_name(s.name().as_ref()) == "rPr" => {
+                depth += 1;
                 if active_hit {
                     saw_rpr_for_hit = true;
                     in_rpr_of_hit = true;
                 }
+                writer.write_event(ev).map_err(xml_err)?;
+            }
+            Event::Start(ref s) => {
+                // 其余开标签仅参与深度计数（EOF 时须归零）。
+                let _ = s;
+                depth += 1;
                 writer.write_event(ev).map_err(xml_err)?;
             }
             Event::Empty(ref s)
@@ -542,6 +556,7 @@ fn rewrite_document(xml: &[u8], targets: &Targets, color: &str) -> CoreResult<(V
                 writer.write_event(ev).map_err(xml_err)?;
             }
             Event::End(ref s) if local_name(s.name().as_ref()) == "rPr" => {
+                depth = depth.saturating_sub(1);
                 if in_rpr_of_hit {
                     write_highlight(&mut writer, color)?;
                     highlighted += 1;
@@ -550,6 +565,7 @@ fn rewrite_document(xml: &[u8], targets: &Targets, color: &str) -> CoreResult<(V
                 writer.write_event(ev).map_err(xml_err)?;
             }
             Event::End(ref s) if local_name(s.name().as_ref()) == "r" => {
+                depth = depth.saturating_sub(1);
                 if active_hit && !saw_rpr_for_hit {
                     // run 完全没有 rPr：在 </w:r> 之前补建一个。
                     write_open_rpr(&mut writer)?;
@@ -561,7 +577,12 @@ fn rewrite_document(xml: &[u8], targets: &Targets, color: &str) -> CoreResult<(V
                 writer.write_event(ev).map_err(xml_err)?;
             }
             Event::End(ref s) if local_name(s.name().as_ref()) == "tbl" => {
+                depth = depth.saturating_sub(1);
                 table_depth = table_depth.saturating_sub(1);
+                writer.write_event(ev).map_err(xml_err)?;
+            }
+            Event::End(_) => {
+                depth = depth.saturating_sub(1);
                 writer.write_event(ev).map_err(xml_err)?;
             }
             other => {
