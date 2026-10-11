@@ -150,7 +150,7 @@ impl Checker for ReferenceListChecker {
                 Some(excerpt),
                 0.6,
             ));
-            for v in out.last_mut() {
+            if let Some(v) = out.last_mut() {
                 v.severity = Severity::Warning;
                 v.requires_manual_review = true;
             }
@@ -172,7 +172,7 @@ mod tests {
     use crate::rules::tests_helper::config_from_json;
 
     fn rule_ctx(
-        doc: &ParsedDocument,
+        _doc: &ParsedDocument,
     ) -> (crate::dsl::RuleConfig, std::sync::Arc<crate::dsl::Rule>) {
         let cfg = config_from_json(include_str!(
             "../../../../resources/rules/education_generic.json"

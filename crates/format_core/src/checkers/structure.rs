@@ -9,9 +9,10 @@
 use regex::Regex;
 
 use crate::checkers::{excerpt_of, loc_of, violation_for};
+// 注意：CitationOccurrence 仅在文件后部的 #[cfg(test)] 测试模块中使用，
+// 此处不列入顶层导入（非 test 构建下会触发 unused_imports 告警）。
 use crate::dsl::{
-    AuditContext, Checker, CitationOccurrence, Paragraph, ParagraphRole, SequenceAnchor, Severity,
-    Violation,
+    AuditContext, Checker, Paragraph, ParagraphRole, SequenceAnchor, Severity, Violation,
 };
 
 /// 锚点是否命中某段落：labels 前缀/包含、roles、regex 任一命中即算。
@@ -479,7 +480,7 @@ impl Checker for CitationOrderChecker {
 mod tests {
     use super::*;
     use crate::checkers::font::tests::{empty_doc, para, run_with};
-    use crate::dsl::{DirectParagraphProps, ReferenceEntry, RuleConfig};
+    use crate::dsl::{CitationOccurrence, DirectParagraphProps, ReferenceEntry, RuleConfig};
 
     fn test_rule() -> RuleOwned {
         RuleOwned(
