@@ -62,10 +62,11 @@ pub fn parse_docx(path: &Path) -> CoreResult<ParsedDocument> {
             context: "读取解析结果".into(),
             source: e,
         })?;
-        let mut doc: ParsedDocument = serde_json::from_str(&text).map_err(|e| CoreError::Xml {
-            part: "document".into(),
-            source: Box::new(e),
-        })?;
+        let mut doc: ParsedDocument =
+            serde_json::from_str(&text).map_err(|e| CoreError::SidecarInvalid {
+                path: json_path.display().to_string(),
+                source: Box::new(e),
+            })?;
         // 以真实输入路径为准（sidecar 中可能记录的是导出机路径）。
         doc.path = path.to_path_buf();
         doc.file_name = path
@@ -131,6 +132,35 @@ mod tests {
         for banned in ["xml", "w:", "panic", "unwrap", "stack"] {
             assert!(!msg.contains(banned));
         }
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// 审查项 G4：合法 zip 魔数 + 损坏 sidecar → SidecarInvalid（而非 Xml），文案友好。
+    #[test]
+    fn corrupted_sidecar_maps_to_sidecar_invalid_with_friendly_message() {
+        let p = tmp("sidecar_broken.docx");
+        std::fs::write(&p, [b'P', b'K', 3, 4, 0, 0, 0, 0]).unwrap();
+        std::fs::write(sidecar_json(&p), b"{ this is not valid json ").unwrap();
+        let e = parse_docx(&p).unwrap_err();
+        assert!(matches!(e, CoreError::SidecarInvalid { .. }), "got {e:?}");
+        let msg = e.user_message().to_ascii_lowercase();
+        assert!(msg.contains("解析结果"), "{msg}");
+        for banned in ["json", "xml", "w:", "panic", "unwrap", "stack"] {
+            assert!(!msg.contains(banned), "外露术语: {msg}");
+        }
+        let _ = std::fs::remove_file(&p);
+        let _ = std::fs::remove_file(sidecar_json(&p));
+    }
+
+    /// 补测计划第 4 条：真实 .docx（zip 魔数）但无 sidecar → MissingPart，中文提示。
+    #[test]
+    fn real_zip_without_sidecar_reports_missing_part() {
+        let p = tmp("no_sidecar.docx");
+        std::fs::write(&p, [b'P', b'K', 3, 4, 0, 0, 0, 0]).unwrap();
+        let _ = std::fs::remove_file(sidecar_json(&p)); // 确保无残留 sidecar
+        let e = parse_docx(&p).unwrap_err();
+        assert!(matches!(e, CoreError::MissingPart { .. }), "got {e:?}");
+        assert!(!e.user_message().is_empty());
         let _ = std::fs::remove_file(&p);
     }
 }

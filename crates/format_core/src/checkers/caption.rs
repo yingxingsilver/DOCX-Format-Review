@@ -285,11 +285,16 @@ impl Checker for CaptionChecker {
 }
 
 /// 编号是否合法衔接：同章节顺延 1；允许章节前缀时章节号可进位（如 1-2 → 2-1）。
-fn number_follows(prev: &[u32], cur: &[u32], rule: &CaptionNumberingRule) -> bool {
+/// 空切片保护（审查项 S3）：任一侧没有编号数字时无法判断，不算跳号；
+/// 否则 `prev.len() - 1` 会在空切片上触发 usize 减法溢出 panic。
+pub(crate) fn number_follows(prev: &[u32], cur: &[u32], rule: &CaptionNumberingRule) -> bool {
+    if prev.is_empty() || cur.is_empty() {
+        return true;
+    }
     if prev.len() == cur.len() {
         let same_prefix = prev[..prev.len() - 1] == cur[..cur.len() - 1];
-        let last_prev = *prev.last().unwrap();
-        let last_cur = *cur.last().unwrap();
+        let last_prev = *prev.last().expect("非空切片必有 last");
+        let last_cur = *cur.last().expect("非空切片必有 last");
         if same_prefix {
             return last_cur == last_prev + 1;
         }
@@ -519,5 +524,49 @@ mod tests {
     fn extract_numbers_handles_chapter_prefix() {
         assert_eq!(extract_numbers("图1-2 系统架构"), vec![1, 2]);
         assert_eq!(extract_numbers("表3 结果"), vec![3]);
+    }
+
+    // ---- number_follows 边界单测（审查项 S3 / 补测计划第 3 条）----
+
+    fn num_rule(continuous: bool, allow_chapter: bool) -> CaptionNumberingRule {
+        CaptionNumberingRule {
+            start: 1,
+            continuous,
+            allow_chapter_prefix: allow_chapter,
+        }
+    }
+
+    #[test]
+    fn number_follows_empty_slices_do_not_panic() {
+        let rule = num_rule(true, false);
+        // 空切片曾触发 usize 减法溢出 panic，修复后必须安全返回“不算跳号”。
+        assert!(number_follows(&[], &[], &rule));
+        assert!(number_follows(&[], &[1], &rule));
+        assert!(number_follows(&[1], &[], &rule));
+    }
+
+    #[test]
+    fn number_follows_same_length_sequences() {
+        let rule = num_rule(true, false);
+        assert!(number_follows(&[1], &[2], &rule), "同前缀顺延 1");
+        assert!(!number_follows(&[1], &[3], &rule), "跳号应判不合法");
+        assert!(number_follows(&[1, 2], &[1, 3], &rule), "章节内顺延");
+        assert!(!number_follows(&[1, 2], &[2, 3], &rule), "前缀变化且不允许进位");
+        let chapter = num_rule(false, true);
+        assert!(
+            number_follows(&[1, 2], &[2, 1], &chapter),
+            "允许章节前缀时 1-2 → 2-1 视为进位"
+        );
+        assert!(
+            !number_follows(&[1, 2], &[3, 1], &chapter),
+            "章号 +2 不是合法进位"
+        );
+    }
+
+    #[test]
+    fn number_follows_length_change_is_not_skipped() {
+        // 长度变化（如 “图1” → “图2-1”）：无法可靠判断，不算跳号。
+        let rule = num_rule(true, false);
+        assert!(number_follows(&[1], &[2, 1], &rule));
     }
 }
