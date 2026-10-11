@@ -64,6 +64,8 @@ export interface AuditReport {
   generated_at: string;
   input_dir: string;
   rule_file: string;
+  /** P8D：后端随任务下发、前端原样回传的标注版 DOCX 绝对路径清单（serde default 兼容旧数据）。 */
+  annotated_outputs?: string[];
   rule_profile: string | null;
   total_files: number;
   passed_files: number;
