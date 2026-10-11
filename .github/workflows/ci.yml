@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-  # ★ 新增：允许在 GitHub Actions 页面手动触发，并提供选项
   workflow_dispatch:
     inputs:
       do_release:
@@ -15,6 +14,11 @@ on:
         description: 'Release 版本号 (仅打包时需要，如 v1.0.0)'
         required: false
         default: ''
+
+# ★ 显式声明权限：允许 Workflow 推送 Tag 和创建 Release
+permissions:
+  contents: write
+  packages: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -102,13 +106,9 @@ jobs:
   # ── 发布构建：打 v* tag 或 手动勾选时产出三平台安装包 ──
   release:
     name: 打包发布 (${{ matrix.platform }} ${{ matrix.args }})
-    # ★ 修改点：满足以下任一条件即触发打包
-    # 1. 推送了 v 开头的 tag
-    # 2. 手动触发 (workflow_dispatch) 且勾选了 do_release
     if: >-
       startsWith(github.ref, 'refs/tags/v') || 
       (github.event_name == 'workflow_dispatch' && inputs.do_release == true)
-    
     needs: [core, frontend, tauri-build]
     strategy:
       fail-fast: false
@@ -127,7 +127,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # 如果是手动触发并填了 tag，确保拉取完整历史
           fetch-depth: 0
 
       - name: Linux 系统依赖
@@ -138,12 +137,17 @@ jobs:
             patchelf build-essential curl wget file libxdo-dev \
             libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
+      # ★ WiX 修复：Windows Runner 默认未启用 .NET Framework 3.5，WiX3 light.exe 必需
+      - name: 安装 WiX 依赖 (.NET Framework 3.5)
+        if: matrix.platform == 'windows-latest'
+        run: |
+          dism /online /enable-feature /featurename:NetFx3 /all /norestart
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
-      # ★ 修复点：macOS 交叉编译必须显式安装对应的 Rust target
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
@@ -157,14 +161,20 @@ jobs:
       - name: 安装前端依赖
         run: npm ci
 
-      # ★ 修改点：手动触发时，如果填写了 version_tag，自动创建 Tag 以便 tauri-action 生成 Release
-      - name: 为手动触发创建临时 Tag (可选)
+      # ★ Tag 幂等创建：避免重复触发时报错
+      - name: 为手动触发创建临时 Tag
         if: github.event_name == 'workflow_dispatch' && inputs.version_tag != ''
+        shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag ${{ inputs.version_tag }}
-          git push origin ${{ inputs.version_tag }}
+          if ! git rev-parse "${{ inputs.version_tag }}" >/dev/null 2>&1; then
+            git tag ${{ inputs.version_tag }}
+            git push origin ${{ inputs.version_tag }}
+            echo "✅ Created and pushed tag ${{ inputs.version_tag }}"
+          else
+            echo "⚠️ Tag ${{ inputs.version_tag }} already exists, skipping"
+          fi
 
       - name: Tauri 构建并发布到 GitHub Releases
         uses: tauri-apps/tauri-action@v0
@@ -172,8 +182,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: ${{ matrix.args }}
-          # 如果是手动触发且没填 tag，可以指定 tagName 让 tauri-action 知道发到哪里
           tagName: ${{ github.event_name == 'workflow_dispatch' && inputs.version_tag != '' && inputs.version_tag || github.ref_name }}
           releaseName: "App ${{ github.event_name == 'workflow_dispatch' && inputs.version_tag != '' && inputs.version_tag || github.ref_name }}"
-          releaseBody: "由 GitHub Actions 自动构建"
-          releaseDraft: true # 建议设为草稿，手动确认后再发布
+          releaseBody: "由 GitHub Actions 自动构建 | Commit: ${{ github.sha }}"
+          releaseDraft: true
