@@ -95,6 +95,25 @@ export function selectFile(path: string | null): void {
  */
 export const simulateLocally = writable<boolean>(true);
 
+/** 模拟步进间隔（毫秒）。测试可通过 setSimulateInterval 缩短，避免拖慢用例。 */
+const SIMULATE_STEP_MS_DEFAULT = 400;
+let stepMs = SIMULATE_STEP_MS_DEFAULT;
+
+/** 调整模拟步进间隔（仅测试/开发用）。返回恢复默认的函数。 */
+export function setSimulateInterval(ms: number): () => void {
+  const prev = stepMs;
+  stepMs = Math.max(1, ms);
+  return () => {
+    stepMs = prev;
+  };
+}
+
+/**
+ * 模块级模拟定时器。
+ * 注意：它不属于任何组件，因此不受组件销毁影响；由 startAudit / cancelAudit /
+ * clearResults / demoError 显式停止（审查项 11/12）。若未来需要在应用卸载时
+ * 兜底清理，调用 stopSimulation() 即可。
+ */
 let simulateTimer: ReturnType<typeof setInterval> | null = null;
 
 function stopTimer(): void {
@@ -102,6 +121,11 @@ function stopTimer(): void {
     clearInterval(simulateTimer);
     simulateTimer = null;
   }
+}
+
+/** 对外暴露的兜底清理入口（供 main.ts 的 beforeunload 或单测 teardown 使用）。 */
+export function stopSimulation(): void {
+  stopTimer();
 }
 
 // =========================
@@ -117,10 +141,21 @@ export async function chooseInputDir(): Promise<void> {
   const dir = window.prompt("输入要模拟的论文文件夹路径（本地演示用）", "/Users/me/theses");
   if (dir) {
     inputDir.set(dir);
-    // 模拟扫描结果：非负伪随机数量，避免写死样例数值作为正式逻辑。
+    // 扫描结果数量：非负伪随机，避免写死样例数值作为正式逻辑。
     fileCount.set(10 + Math.floor(Math.random() * 30));
     errorMessage.set(null);
   }
+}
+
+/**
+ * 直接设置演示文件夹（供自动化测试 / 未来 Tauri drag-drop 回调复用）。
+ * 与 chooseInputDir 的后半段语义一致，但不弹任何对话框。
+ */
+export function setDemoInputDir(dir: string): void {
+  if (get(status) === "running") return;
+  inputDir.set(dir);
+  fileCount.set(10 + Math.floor(Math.random() * 30));
+  errorMessage.set(null);
 }
 
 /** 选择格式规则文件。调用点：stores.chooseRuleFile()。 */
@@ -149,12 +184,21 @@ export async function startAudit(): Promise<void> {
   report.set(null);
   selectedFile.set(null);
   logs.set([]);
+  currentFileName.set(null);
   stopTimer();
   if (!get(simulateLocally)) {
     // TODO(P8C): return stores.startAudit();
     return;
   }
   const total = get(fileCount) ?? 0;
+  // 边界：文件夹中没有任何可处理文件时直接给出友好提示，不进入空转的 running。
+  if (total <= 0) {
+    stageLabel.set("");
+    status.set("idle");
+    errorMessage.set("所选文件夹中没有发现 Word（.docx）论文文件，请确认选对了位置。");
+    pushLog("warn", "未发现可检查的文件，已停止");
+    return;
+  }
   progress.set({ completed: 0, total });
   stageLabel.set("正在解析样式");
   pushLog("info", "开始检查：共 " + total + " 个文件");
@@ -183,7 +227,7 @@ export async function startAudit(): Promise<void> {
       pushLog("info", `检查完成：${rep.failed_files} 个文件需要修改`);
       status.set("done");
     }
-  }, 400);
+  }, stepMs);
 }
 
 /** 取消审核。调用点：stores.cancelAudit()。 */
@@ -362,8 +406,11 @@ export async function exportCsv(): Promise<void> {
 }
 
 /** 演示用：注入一次失败状态（error 界面验收用，正式版由 audit://error 事件写入）。 */
-export function demoError(): void {
+export function demoError(message?: string): void {
   stopTimer();
-  errorMessage.set("部分文件无法读取，检查未能全部完成。请确认文件夹中的 Word 文件未损坏、未被其他程序占用，然后重新开始检查。");
+  errorMessage.set(
+    message ??
+      "部分文件无法读取，检查未能全部完成。请确认文件夹中的 Word 文件未损坏、未被其他程序占用，然后重新开始检查。",
+  );
   status.set("error");
 }

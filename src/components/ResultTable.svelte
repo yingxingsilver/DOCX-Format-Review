@@ -54,6 +54,20 @@
       .filter((p): p is number => p != null);
     return pages.length > 0 ? `约第 ${Math.min(...pages)} 页` : "—";
   }
+
+  /**
+   * 行唯一键：优先 file_path；若报告内出现重复路径（如后端按不同规则输出同路径
+   * 条目），追加下标兜底，避免 Svelte keyed each 因重复键直接抛错（审查项 2）。
+   * O(1)：用 Map 统计已见次数，替代 indexOf 的 O(n²)。
+   */
+  const seenCount = $derived.by(() => {
+    const m = new Map<string, number>();
+    for (const f of files) m.set(f.file_path, (m.get(f.file_path) ?? 0) + 1);
+    return m;
+  });
+  function rowKey(f: AuditSummary, i: number): string {
+    return (seenCount.get(f.file_path) ?? 0) > 1 ? `${f.file_path}#${i}` : f.file_path;
+  }
 </script>
 
 <section class="card bg-base-100 border border-base-200 shadow-sm">
@@ -116,7 +130,7 @@
               </td>
             </tr>
           {:else}
-            {#each filtered as f (f.file_path)}
+            {#each filtered as f, i (rowKey(f, i))}
               {@const badge = statusBadge(f)}
               <tr
                 class="cursor-pointer hover:bg-base-200 {selected === f.file_path ? '!bg-base-200' : ''}"

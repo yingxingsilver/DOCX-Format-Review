@@ -5,6 +5,7 @@
   数据来自 props（App 从 stores.violationsByFile + selectedFile 下发），无业务逻辑。
 -->
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import type { AuditSummary, Severity, Violation } from "../lib/types";
 
   interface Props {
@@ -44,6 +45,31 @@
   // ---- 复制单条问题 ----
   let copiedId = $state<string | null>(null);
 
+  /**
+   * “已复制”提示的自动消失定时器。
+   * 用显式 timer + 销毁清理（onDestroy），而不是 $effect：
+   * $effect 会在 copiedId 每次变化时重跑，用户 2 秒内复制另一条会把计时清零，
+   * 导致“已复制”提示无限续期、永不复位；且同一问题连续复制时 id 不变、
+   * effect 不重跑，行为不一致。审查项 11：定时器必须随组件销毁释放。
+   */
+  let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function armCopyReset(id: string): void {
+    if (copyResetTimer !== null) clearTimeout(copyResetTimer);
+    copiedId = id;
+    copyResetTimer = setTimeout(() => {
+      copiedId = null;
+      copyResetTimer = null;
+    }, 2000);
+  }
+
+  onDestroy(() => {
+    if (copyResetTimer !== null) {
+      clearTimeout(copyResetTimer);
+      copyResetTimer = null;
+    }
+  });
+
   /** 复制到剪贴板：优先 navigator.clipboard，失败回退隐藏 textarea + execCommand。 */
   async function copyText(text: string): Promise<boolean> {
     try {
@@ -82,10 +108,7 @@
 
   async function onCopy(v: Violation): Promise<void> {
     const ok = await copyText(formatViolation(v));
-    if (ok) {
-      copiedId = `${v.rule_id}-${v.location.paragraph_index ?? -1}-${v.severity}`;
-      setTimeout(() => (copiedId = null), 2000);
-    }
+    if (ok) armCopyReset(vidKey(v));
   }
 
   function vidKey(v: Violation): string {
@@ -97,9 +120,8 @@
     if (!v.excerpt || !v.actual) return null;
     const start = v.excerpt.indexOf(v.actual);
     if (start >= 0) return [start, start + v.actual.length];
-    // 退化匹配：取摘录末尾一段作为“问题位置”示意，避免误导为整段高亮。
-    const tail = Math.min(v.excerpt.length, 12);
-    return [v.excerpt.length - tail, v.excerpt.length];
+    // actual 不在摘录中：无法可靠定位问题片段，不做示意性高亮，避免误导用户。
+    return null;
   }
 </script>
 
