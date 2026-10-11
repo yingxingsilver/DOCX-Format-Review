@@ -497,6 +497,8 @@ pub fn audit_directory(
         total_warnings,
         total_infos,
         files: summaries,
+        // 标注版 DOCX 由上层（Tauri 命令层）在任务完成后生成并回填。
+        annotated_outputs: vec![],
     })
 }
 

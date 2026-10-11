@@ -1188,6 +1188,10 @@ pub struct AuditReport {
     pub total_warnings: usize,
     pub total_infos: usize,
     pub files: Vec<FileAuditSummary>,
+    /// P8D：随任务生成的「标注版 DOCX」绝对路径清单（未开启标注生成时为空）。
+    /// `serde(default)` 保证旧报告 JSON（无此字段）仍可反序列化。
+    #[serde(default)]
+    pub annotated_outputs: Vec<PathBuf>,
 }
 
 // =========================

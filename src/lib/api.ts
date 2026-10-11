@@ -108,6 +108,17 @@ export async function cancelAudit(jobId: string): Promise<ApiResult<null>> {
   }
 }
 
+/**
+ * P8D：回传后端前剥离标注版 DOCX 路径清单。
+ * annotated_outputs 是界面「打开文件」用的产物索引，不属于报告正文；
+ * 若原样回传，每次重新导出都会让旧路径在报告对象里累积重复。
+ */
+export function stripAnnotatedOutputs(report: AuditReport): AuditReport {
+  if (report.annotated_outputs === undefined) return report;
+  const { annotated_outputs: _omit, ...rest } = report;
+  return rest as AuditReport;
+}
+
 /** 导出审核报告（HTML/CSV），返回保存成功提示或写入错误。 */
 export async function exportReport(
   report: AuditReport,
@@ -116,7 +127,7 @@ export async function exportReport(
 ): Promise<ApiResult<string>> {
   try {
     const msg = await invoke<string>("export_report", {
-      reportJson: JSON.stringify(report),
+      reportJson: JSON.stringify(stripAnnotatedOutputs(report)),
       outputPath,
       format,
     });

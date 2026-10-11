@@ -19,6 +19,8 @@ interface MockChannels {
   invokeMock: InvokeMock;
   dialogOpenMock: DialogMock;
   openPathMock: OpenPathMock;
+  /** P8D：revealItemInDir（打开所在文件夹）mock */
+  revealItemMock: OpenPathMock;
   /** 事件名 -> 已注册 handler，供测试 fire() 手动触发 */
   handlers: Record<string, ListenHandler>;
   /** 取消函数登记表，验证 disposeAuditEvents 是否全部清理 */
@@ -35,6 +37,7 @@ vi.hoisted(() => {
     invokeMock: vi.fn(),
     dialogOpenMock: vi.fn(),
     openPathMock: vi.fn(),
+    revealItemMock: vi.fn(),
     handlers: {},
     unlisteners: [],
   };
@@ -65,6 +68,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 }));
 vi.mock("@tauri-apps/plugin-opener", () => ({
   openPath: (path: string) => ch().openPathMock(path),
+  revealItemInDir: (path: string) => ch().revealItemMock(path),
 }));
 
 const invokeMock = ch().invokeMock;

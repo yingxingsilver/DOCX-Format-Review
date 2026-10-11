@@ -1,0 +1,693 @@
+//! Tauri 命令层（P8D：GUI 完整闭环接线）。
+//!
+//! 职责边界：本层只做「参数校验 + 对 format_core 的薄封装 + 事件转发」，
+//! 任何审核/报告业务逻辑一律放在 `format_core`，禁止写入本层或前端。
+//!
+//! P8D 新增三个命令，与前端 `src/lib/api.ts` 一一对应：
+//! - `list_docx_files`：所选文件夹里的 .docx 预览清单；
+//! - `start_audit`：后台线程跑批量审核，进度/日志/结果经 `audit://*` 事件推送，
+//!   可选为有问题的文件生成「标注版 DOCX」副本（原文件不被修改）；
+//! - `cancel_audit`：置位取消令牌（幂等），剩余文件标记跳过。
+//!
+//! 无僵尸任务约定：审核跑在 `spawn_blocking` 的阻塞线程上，随应用进程退出自然终止；
+//! 正常路径由 `audit://done` / `audit://error` 事件收尾并清理任务登记表。
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use serde::Serialize;
+use tauri::{AppHandle, Emitter, Manager, State};
+
+use format_core::audit::{AuditProgress, CancellationToken};
+use format_core::dsl::AuditReport;
+
+/// 自检命令：前端可调用以确认 Rust 核心引擎已正确链接。
+#[tauri::command]
+pub fn core_version() -> String {
+    format_core::version().to_string()
+}
+
+// =========================
+// 共享状态：运行中任务登记表（job_id -> 取消令牌）
+// =========================
+
+#[derive(Default)]
+pub struct JobRegistry(Mutex<HashMap<String, Arc<CancellationToken>>>);
+
+impl JobRegistry {
+    fn register(&self, id: String, token: Arc<CancellationToken>) {
+        if let Ok(mut m) = self.0.lock() {
+            m.insert(id, token);
+        }
+    }
+    fn take(&self, id: &str) -> Option<Arc<CancellationToken>> {
+        self.0.lock().ok().and_then(|mut m| m.remove(id))
+    }
+    fn get(&self, id: &str) -> Option<Arc<CancellationToken>> {
+        self.0.lock().ok().and_then(|m| m.get(id).cloned())
+    }
+}
+
+// =========================
+// 事件负载（字段名 snake_case，与 src/lib/types.ts 严格一致）
+// =========================
+
+#[derive(Clone, Serialize)]
+struct ProgressPayload {
+    job_id: String,
+    completed: usize,
+    total: usize,
+    current_file: String,
+    finished_violations: usize,
+}
+
+#[derive(Clone, Serialize)]
+struct LogPayload {
+    job_id: String,
+    at: u64,
+    level: &'static str,
+    message: String,
+}
+
+#[derive(Clone, Serialize)]
+struct DonePayload {
+    job_id: String,
+    cancelled: bool,
+    report: AuditReport,
+}
+
+#[derive(Clone, Serialize)]
+struct ErrorPayload {
+    job_id: String,
+    user_message: String,
+}
+
+fn now_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// 把 CoreError 记入技术日志（stderr 全链路），返回面向用户的中文提示。
+fn emit_error(app: &AppHandle, job_id: &str, err: &format_core::error::CoreError) {
+    eprintln!("[{job_id}] {}", err.debug_chain());
+    let _ = app.emit(
+        "audit://error",
+        ErrorPayload {
+            job_id: job_id.to_string(),
+            user_message: err.user_message(),
+        },
+    );
+}
+
+// =========================
+// AuditProgress → Tauri 事件桥
+// =========================
+
+/// 桥接实现：rayon 工作线程安全调用（emit 内部自行序列化+投递主线程）。
+struct EventProgress {
+    app: AppHandle,
+    job_id: String,
+    total: usize,
+    completed: AtomicUsize,
+    violations: AtomicUsize,
+}
+
+impl AuditProgress for EventProgress {
+    fn on_file_started(&self, file: &Path) {
+        // 阶段文案由前端按 completed/total 推断，这里只需带上当前文件名。
+        let completed = self.completed.load(Ordering::Relaxed);
+        let _ = self.app.emit(
+            "audit://progress",
+            ProgressPayload {
+                job_id: self.job_id.clone(),
+                completed,
+                total: self.total,
+                current_file: file.display().to_string(),
+                finished_violations: self.violations.load(Ordering::Relaxed),
+            },
+        );
+    }
+
+    fn on_file_finished(&self, _file: &Path, violation_count: usize) {
+        let completed = self.completed.fetch_add(1, Ordering::Relaxed) + 1;
+        self.violations.fetch_add(violation_count, Ordering::Relaxed);
+        let _ = self.app.emit(
+            "audit://progress",
+            ProgressPayload {
+                job_id: self.job_id.clone(),
+                completed,
+                total: self.total,
+                current_file: String::new(),
+                finished_violations: self.violations.load(Ordering::Relaxed),
+            },
+        );
+    }
+
+    fn on_log(&self, message: String) {
+        let _ = self.app.emit(
+            "audit://log",
+            LogPayload {
+                job_id: self.job_id.clone(),
+                at: now_millis(),
+                level: "info",
+                message,
+            },
+        );
+    }
+}
+
+// =========================
+// 内置通用规则（未选择规则文件时的默认检查项）
+// =========================
+
+/// 内置通用规则：正文小四、固定行距 20 磅、禁用装饰字体——与 rules/default.json 示例同源，
+/// 但内嵌于程序本体，用户不选规则文件也能开箱即用。
+const BUILTIN_RULE_JSON: &str = r#"{
+  "version": "1.0",
+  "name": "内置通用规则",
+  "description": "无需规则文件的默认检查：正文字号小四（12 磅）、行距固定值 20 磅、正文不使用艺术字体。",
+  "defaults": { "tolerance": { "font_size_pt": 0.5, "line_spacing_pt": 0.2 } },
+  "font_size_aliases": { "三号": 16.0, "四号": 14.0, "小四": 12.0, "五号": 10.5 },
+  "rules": [
+    {
+      "id": "body-font-size",
+      "enabled": true,
+      "severity": "error",
+      "manual_review": false,
+      "message": "正文字号应为小四（12 磅）",
+      "suggestion": "选中正文，在“开始”选项卡把字号调整为“小四”。",
+      "target": { "roles": ["body"] },
+      "type": "run_font_size",
+      "expected_pt": 12.0,
+      "apply_to": "non_empty_runs"
+    },
+    {
+      "id": "body-line-spacing",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": false,
+      "message": "正文行距应为固定值 20 磅",
+      "suggestion": "选中正文，在“段落”里把行距设为“固定值 20 磅”。",
+      "target": { "roles": ["body"] },
+      "type": "paragraph_line_spacing",
+      "expected": { "unit": "exact_pts", "value": 20.0 },
+      "apply_to": "paragraph"
+    },
+    {
+      "id": "body-no-decorative-font",
+      "enabled": true,
+      "severity": "warning",
+      "manual_review": false,
+      "message": "正文不应使用艺术/装饰字体",
+      "suggestion": "选中正文，把字体改回“宋体”。",
+      "target": { "roles": ["body"] },
+      "type": "run_font_family",
+      "expected": { "blocked_decorative_fonts": ["华文彩云", "幼圆", "隶书", "华文琥珀"] },
+      "apply_to": "non_empty_runs"
+    }
+  ]
+}"#;
+
+/// 解析规则：优先用户所选 JSON，缺省用内置通用规则。错误文案已是中文、可直接展示。
+fn resolve_rule_config(rule_file: Option<&str>) -> Result<format_core::dsl::RuleConfig, String> {
+    match rule_file {
+        Some(path) => format_core::rules::load_rule_config(path)
+            .map_err(|e| e.user_message()),
+        None => format_core::rules::parse_rule_config(BUILTIN_RULE_JSON, "内置通用规则")
+            .map_err(|e| e.user_message()),
+    }
+}
+
+// =========================
+// 标注版 DOCX 生成（任务收尾阶段，串行即可）
+// =========================
+
+/// 为每个「需要修改」的文件生成带高亮的标注副本：`原名.标注版.docx`（同目录）。
+/// 单个文件失败只记日志，不影响整体任务；原文件绝不改动。
+fn generate_annotated_copies(
+    app: &AppHandle,
+    job_id: &str,
+    report: &mut AuditReport,
+) {
+    use format_core::dsl::FileStatus;
+    let mut outputs: Vec<PathBuf> = Vec::new();
+    let jobs: Vec<(PathBuf, Vec<format_core::dsl::Violation>)> = report
+        .files
+        .iter()
+        .filter(|s| s.status == FileStatus::NeedsRevision && !s.violations.is_empty())
+        .map(|s| (s.file_path.clone(), s.violations.clone()))
+        .collect();
+    let planned = jobs.len();
+    for (src, violations) in jobs {
+        let name = src
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "论文.docx".into());
+        let stem = name.strip_suffix(".docx").unwrap_or(&name);
+        let out = src.with_file_name(format!("{stem}.标注版.docx"));
+        match format_core::annotated_docx::generate_annotated_docx(&src, &violations, &out) {
+            Ok(stats) => {
+                eprintln!(
+                    "[{job_id}] 标注版生成成功：{}（高亮 {} 处，跳过 {} 处）",
+                    out.display(),
+                    stats.highlighted_runs,
+                    stats.skipped_violations
+                );
+                outputs.push(out);
+            }
+            Err(e) => {
+                eprintln!("[{job_id}] 标注版生成失败：{}", e.debug_chain());
+                let _ = app.emit(
+                    "audit://log",
+                    LogPayload {
+                        job_id: job_id.to_string(),
+                        at: now_millis(),
+                        level: "warn",
+                        message: format!(
+                            "《{name}》的标注副本没有生成成功，检查结果本身不受影响。"
+                        ),
+                    },
+                );
+            }
+        }
+    }
+    if planned > 0 && !outputs.is_empty() {
+        let _ = app.emit(
+            "audit://log",
+            LogPayload {
+                job_id: job_id.to_string(),
+                at: now_millis(),
+                level: "info",
+                message: format!("已生成 {} 个标注版文件，原文件保持不变。", outputs.len()),
+            },
+        );
+    }
+    report.annotated_outputs = outputs;
+}
+
+// =========================
+// P8D 新增命令
+// =========================
+
+/// `list_docx_files` 返回的单文件元数据（与前端 FileMeta 对应）。
+#[derive(Serialize)]
+pub struct FileMetaOut {
+    pub path: String,
+    pub name: String,
+    pub size_bytes: u64,
+    pub modified_unix: u64,
+}
+
+/// 列出目录下全部 .docx（供界面显示“已发现 N 个 Word 文件”）。
+#[tauri::command]
+pub async fn list_docx_files(dir: String) -> Result<Vec<FileMetaOut>, String> {
+    let path = PathBuf::from(&dir);
+    let files = tauri::async_runtime::spawn_blocking(move || {
+        format_core::audit::collect_docx_files(&path)
+    })
+    .await
+    .map_err(|_| "扫描文件夹时程序内部出错，请重试。".to_string())?
+    .map_err(|e| e.user_message())?;
+
+    Ok(files
+        .iter()
+        .map(|f| {
+            let meta = f.metadata().ok();
+            let modified_unix = meta
+                .as_ref()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            FileMetaOut {
+                path: f.display().to_string(),
+                name: f
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
+                size_bytes: meta.as_ref().map(|m| m.len()).unwrap_or(0),
+                modified_unix,
+            }
+        })
+        .collect())
+}
+
+/// 启动一次批量审核：立即返回 job_id，过程与结果经 `audit://*` 事件推送。
+///
+/// - `rule_file` 为 null 时使用内置通用规则（非技术人员可不选规则直接开始）；
+/// - `include_subdirs`：后端始终递归扫描；为 false 时仅保留所选文件夹第一层的文件；
+/// - `generate_annotated_docx`：完成后为每个需修改文件生成高亮标注副本。
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn start_audit(
+    app: AppHandle,
+    registry: State<'_, JobRegistry>,
+    input_dir: String,
+    rule_file: Option<String>,
+    include_subdirs: Option<bool>,
+    generate_annotated_docx: Option<bool>,
+) -> Result<String, String> {
+    let job_id = format!(
+        "job-{}-{}",
+        std::process::id(),
+        uuid_like_suffix()
+    );
+
+    // 先做快速校验（参数错误立刻返回，不进后台线程）。
+    let dir = PathBuf::from(&input_dir);
+    if !dir.is_dir() {
+        return Err("所选位置不是一个文件夹，请重新选择。".into());
+    }
+    let config = resolve_rule_config(rule_file.as_deref())?;
+    let only_top_level = include_subdirs.unwrap_or(true) == false;
+    let want_annotated = generate_annotated_docx.unwrap_or(false);
+
+    let token = Arc::new(CancellationToken::new());
+    registry.register(job_id.clone(), token.clone());
+
+    let app_for_task = app.clone();
+    let job_for_task = job_id.clone();
+    let cleanup_job = job_id.clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_for_task.state::<JobRegistry>();
+
+        // 1. 收集文件（复用核心层递归扫描；不递归时过滤到第一层）。
+        let all = match format_core::audit::collect_docx_files(&dir) {
+            Ok(f) => f,
+            Err(e) => {
+                emit_error(&app_for_task, &job_for_task, &e);
+                state.take(&cleanup_job);
+                return;
+            }
+        };
+        let files: Vec<PathBuf> = if only_top_level {
+            all.into_iter().filter(|f| f.parent() == Some(dir.as_path())).collect()
+        } else {
+            all
+        };
+        let total = files.len();
+
+        if total == 0 {
+            let _ = app_for_task.emit(
+                "audit://log",
+                LogPayload {
+                    job_id: job_for_task.clone(),
+                    at: now_millis(),
+                    level: "info",
+                    message: "这个文件夹里没有找到 Word 论文文件（.docx）。".into(),
+                },
+            );
+        }
+
+        // 2. 逐文件审核（本线程顺序执行；单文件 panic 被 catch_unwind 兜住，
+        //    读取失败计入报告，不中断整批）。
+        let bridge = EventProgress {
+            app: app_for_task.clone(),
+            job_id: job_for_task.clone(),
+            total,
+            completed: AtomicUsize::new(0),
+            violations: AtomicUsize::new(0),
+        };
+        let mut report = AuditReport {
+            generated_at: String::new(),
+            input_dir: dir.clone(),
+            rule_file: PathBuf::from(&config.name),
+            rule_profile: None,
+            total_files: total,
+            passed_files: 0,
+            failed_files: 0,
+            read_failed_files: 0,
+            total_errors: 0,
+            total_warnings: 0,
+            total_infos: 0,
+            files: Vec::with_capacity(total),
+            annotated_outputs: vec![],
+        };
+        let mut cancelled_midway = false;
+
+        for (idx, file) in files.iter().enumerate() {
+            if token.is_cancelled() {
+                cancelled_midway = true;
+                break;
+            }
+            bridge.on_file_started(file);
+            let summary =
+                format_core::audit::audit_file_with_config_summary_compat(file, &config);
+            bridge.on_file_finished(file, summary.violations.len());
+            if let Some(reason) = &summary.parse_error {
+                let _ = app_for_task.emit(
+                    "audit://log",
+                    LogPayload {
+                        job_id: job_for_task.clone(),
+                        at: now_millis(),
+                        level: "warn",
+                        message: format!("{}：{reason}", summary.file_name),
+                    },
+                );
+            }
+            report.total_errors += summary.error_count;
+            report.total_warnings += summary.warning_count;
+            report.total_infos += summary.info_count;
+            match summary.status {
+                format_core::dsl::FileStatus::Passed => report.passed_files += 1,
+                format_core::dsl::FileStatus::NeedsRevision => report.failed_files += 1,
+                format_core::dsl::FileStatus::ReadFailed => report.read_failed_files += 1,
+                format_core::dsl::FileStatus::Skipped => {}
+            }
+            report.files.push(summary);
+            let _ = idx;
+        }
+        report.generated_at = now_display();
+
+        // 3. 可选：生成标注版副本。
+        if want_annotated && report.failed_files > 0 {
+            generate_annotated_copies(&app_for_task, &job_for_task, &mut report);
+        }
+
+        if cancelled_midway {
+            let _ = app_for_task.emit(
+                "audit://log",
+                LogPayload {
+                    job_id: job_for_task.clone(),
+                    at: now_millis(),
+                    level: "info",
+                    message: "任务已停止，已完成的部分结果仍可查看。".into(),
+                },
+            );
+        } else {
+            let _ = app_for_task.emit(
+                "audit://log",
+                LogPayload {
+                    job_id: job_for_task.clone(),
+                    at: now_millis(),
+                    level: "info",
+                    message: format!(
+                        "检查完成：共 {} 个文件，{} 个需要修改，{} 个无法读取。",
+                        report.total_files, report.failed_files, report.read_failed_files
+                    ),
+                },
+            );
+        }
+
+        let _ = app_for_task.emit(
+            "audit://done",
+            DonePayload {
+                job_id: job_for_task,
+                cancelled: cancelled_midway,
+                report,
+            },
+        );
+        state.take(&cleanup_job);
+    });
+
+    Ok(job_id)
+}
+
+/// 请求取消审核（幂等）。任务已结束时返回 false（前端忽略即可）。
+#[tauri::command]
+pub fn cancel_audit(registry: State<'_, JobRegistry>, job_id: String) -> bool {
+    match registry.get(&job_id) {
+        Some(token) => {
+            token.cancel();
+            true
+        }
+        None => false,
+    }
+}
+
+/// 生成一个短随机后缀用于 job_id（避免引入 uuid 依赖）。
+fn uuid_like_suffix() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0)
+}
+
+/// 本地时间 "YYYY-MM-DD HH:MM:SS"（不引入 chrono：civil-from-days 算法）。
+fn now_display() -> String {
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let (days, time) = (secs.div_euclid(86400), secs.rem_euclid(86400));
+    // Howard Hinnant civil_from_days
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    let (h, mi, s) = (time / 3600, (time % 3600) / 60, time % 60);
+    format!("{y:04}-{m:02}-{d:02} {h:02}:{mi:02}:{s:02}")
+}
+
+// =========================
+// 报告导出（P6 既有命令，保持兼容）
+// =========================
+
+/// 报告格式（与前端下拉选项对应）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReportFormat {
+    Html,
+    Csv,
+}
+
+/// 把批量审核结果（JSON 序列化的 `AuditReport`）导出为 HTML / CSV 文件。
+///
+/// - `report_json` 来自 `audit://done` 事件的报告序列化结果；
+/// - 渲染逻辑全部在 `format_core::report`，本函数不掺入业务；
+/// - 错误返回中文用户提示（`user_message`），技术细节仅进日志。
+#[tauri::command]
+pub async fn export_report(
+    report_json: String,
+    output_path: String,
+    format: ReportFormat,
+) -> Result<String, String> {
+    let report: AuditReport = serde_json::from_str(&report_json).map_err(|e| {
+        format!(
+            "审核结果数据有误，无法生成报告：{e}\n（请重新运行一次检查后再导出）"
+        )
+    })?;
+    let path = Path::new(&output_path);
+    let result = match format {
+        ReportFormat::Html => format_core::report::generate_html_report(&report, path),
+        ReportFormat::Csv => format_core::report::generate_csv_report(&report, path),
+    };
+    match result {
+        Ok(()) => Ok(format!("报告已保存到：{output_path}")),
+        Err(e) => {
+            // 日志留全链路，用户只见中文提示。
+            eprintln!("[export_report] {}", e.debug_chain());
+            Err(e.user_message())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn core_version_returns_semver() {
+        let v = core_version();
+        assert!(v.chars().next().is_some_and(|c| c.is_ascii_digit()));
+        assert_eq!(v, "0.1.0");
+    }
+
+    #[test]
+    fn report_format_deserializes_snake_case() {
+        let h: ReportFormat = serde_json::from_str("\"html\"").unwrap();
+        let c: ReportFormat = serde_json::from_str("\"csv\"").unwrap();
+        assert_eq!(h, ReportFormat::Html);
+        assert_eq!(c, ReportFormat::Csv);
+    }
+
+    /// 内置通用规则必须能通过核心层加载与校验（防止手滑改坏 JSON 字面量）。
+    #[test]
+    fn builtin_rule_config_parses_and_validates() {
+        let cfg = format_core::rules::parse_rule_config(BUILTIN_RULE_JSON, "内置通用规则")
+            .expect("内置规则应能解析");
+        assert_eq!(cfg.rules.len(), 3);
+        assert_eq!(cfg.name, "内置通用规则");
+    }
+
+    #[test]
+    fn resolve_rule_config_rejects_bad_path_in_chinese() {
+        let err = resolve_rule_config(Some("/definitely/not/exist/rule.json")).unwrap_err();
+        assert!(err.contains("规则文件"), "{err}");
+    }
+
+    #[test]
+    fn resolve_rule_config_none_uses_builtin() {
+        let cfg = resolve_rule_config(None).expect("内置规则可用");
+        assert!(!cfg.rules.is_empty());
+    }
+
+    #[test]
+    fn now_display_has_expected_shape() {
+        let s = now_display();
+        // "YYYY-MM-DD HH:MM:SS"
+        assert_eq!(s.len(), 19, "{s}");
+        assert_eq!(&s[4..5], "-");
+        assert_eq!(&s[10..11], " ");
+    }
+
+    #[test]
+    fn cancellation_token_registry_roundtrip() {
+        let reg = JobRegistry::default();
+        let t = Arc::new(CancellationToken::new());
+        reg.register("j1".into(), t.clone());
+        assert!(reg.get("j1").is_some());
+        reg.take("j1");
+        assert!(reg.get("j1").is_none());
+        assert!(!t.is_cancelled());
+        t.cancel();
+        assert!(t.is_cancelled());
+    }
+
+    /// 非法 JSON 必须得到中文、含引导语的错误，而不是 panic。
+    ///
+    /// `export_report` 是 async 命令，但全部校验逻辑在任何 await 点之前完成，
+    /// 因此手动 poll 一次即为 Ready——测试不引入 tokio 等运行时依赖。
+    #[test]
+    fn export_report_rejects_bad_json_with_chinese_hint() {
+        use std::future::Future;
+        use std::task::{Context, Poll, Waker};
+
+        let out_path = std::env::temp_dir().join("paper_audit_不应被写入.html");
+        let _ = std::fs::remove_file(&out_path);
+
+        let fut = export_report(
+            "{ 坏数据".to_string(),
+            out_path.to_string_lossy().to_string(),
+            ReportFormat::Html,
+        );
+
+        let mut boxed: std::pin::Pin<Box<dyn Future<Output = Result<String, String>>>> =
+            Box::pin(fut);
+        let waker = Waker::noop();
+        let mut cx = Context::from_waker(waker);
+        let err = loop {
+            match boxed.as_mut().poll(&mut cx) {
+                Poll::Ready(Ok(v)) => panic!("期望 Err，却成功返回：{v}"),
+                Poll::Ready(Err(e)) => break e,
+                Poll::Pending => continue, // 实际不会发生：函数体内无真实异步等待
+            }
+        };
+
+        assert!(err.contains("审核结果数据有误"), "{err}");
+        assert!(!out_path.exists(), "参数校验失败时不应写出任何报告文件");
+    }
+}
