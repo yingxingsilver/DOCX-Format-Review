@@ -172,27 +172,49 @@ fn parse_points(s: &str) -> Option<f64> {
 
 /// 在“压缩空白 + 小写”后的串中定位 `key=`，返回 value 起点相对串首的偏移。
 ///
-/// key 后必须紧跟 `=`；为避免查找 "line" 误命中 "linerule"，要求 key 前一字符
-/// 不是字母数字（若恰为 "rule" 前缀则放行，兼容 lineRule / w:spacing lineRule）。
+/// 匹配规则：`key` 必须作为一个**完整的键名 token**出现——其后紧跟 `=`，
+/// 且其前面不能紧邻字母/数字（允许串首、`:`、`;` 等分隔符，兼容
+/// `w:spacing` 之类的命名空间前缀写法）。
+///
+/// 这样查 "linerule" 能正确命中 "linerule=exact line=400"（键位于串首）；
+/// 旧实现里的 `compact[..idx].ends_with("rule")` 放行分支会把
+/// "…exactline=400" 中的 'r'/'l' 衔接处误判为合法键边界，导致 linerule
+/// 匹配失败、行距翻译落入兜底清洗只剩数字——现已按完整 token 判定修正。
+/// 同理，查 "line" 不会误命中 "linerule=…"（"line" 之后是 "rule=" 而非 "="）。
 /// 多处命中时取最后一处（更贴近实际生效属性）。
 fn find_kv_value_start(compact: &str, key: &str) -> Option<usize> {
+    let bytes = compact.as_bytes();
+    if key.is_empty() {
+        return None;
+    }
     let mut found = None;
     let mut from = 0usize;
     while let Some(rel) = compact[from..].find(key) {
         let idx = from + rel;
-        let before_ok = if idx == 0 {
-            true
-        } else {
-            let prev = compact[..idx].chars().next_back().unwrap_or(' ');
-            !prev.is_ascii_alphanumeric() || compact[..idx].ends_with("rule")
+        // 键起始处必须是合法字符边界（不把多字节中文的碎片当成键名开头）。
+        let at_boundary = idx == 0 || !is_utf8_cont(byte_at(bytes, idx));
+        // 键前不得紧邻字母/数字；串首或 ':' ';' '_' 等分隔符均可。
+        let before_ok = idx == 0 || {
+            let prev = bytes[idx - 1];
+            !(prev.is_ascii_alphanumeric() || is_utf8_cont(prev))
         };
-        let after = &compact[idx + key.len()..];
-        if before_ok && after.starts_with('=') {
+        let after_ok = matches!(bytes.get(idx + key.len()), Some(b'=') | Some(b':'))
+            && bytes.get(idx + key.len()) == Some(&b'=');
+        if at_boundary && before_ok && after_ok {
             found = Some(idx + key.len() + 1);
         }
         from = idx + key.len();
     }
     found
+}
+
+fn byte_at(bytes: &[u8], idx: usize) -> u8 {
+    bytes[idx]
+}
+
+/// UTF-8 续字节（`0b10xxxxxx`）。
+fn is_utf8_cont(b: u8) -> bool {
+    b & 0xC0 == 0x80
 }
 
 /// 提取 `key=value` 形式的字符串值（大小写不敏感、忽略空格）。
