@@ -39,7 +39,7 @@ pub struct ReferenceListChecker {
 
 impl ReferenceListChecker {
     /// 收集参考文献条目：优先解析器结构化输出；为空时按角色 + 行首 [n] 兜底扫描一遍（O(n)）。
-    fn collect_entries<'a>(&self, doc: &'a ParsedDocument) -> Vec<(usize, u32, String)> {
+    fn collect_entries(&self, doc: &ParsedDocument) -> Vec<(usize, u32, String)> {
         if !doc.reference_entries.is_empty() {
             return doc
                 .reference_entries
