@@ -100,7 +100,11 @@ pub fn plain_term(raw: &str) -> String {
         // 值取到 "exactline=400"），这里剥离尾部粘连的 `xxx=...` 片段，
         // 只保留当前键真正的值。
         let rl = strip_trailing_kv(&rl);
-        if rl == "exact" || rl == "atleast" || rl == "4" || rl == "1" {
+        // 枚举词与数字形式（w:spacing 里的 "1"/"4"）都接受；
+        // 数值一律按 twips（1/20 磅）换算成磅值展示。
+        let fixed = rl == "exact" || rl == "atleast";
+        let numeric = first_number(&rl).is_some() && (rl == "1" || rl == "4");
+        if fixed || numeric {
             if let Some(p) = extract_key_number(t, "line") {
                 return format!("固定值 {} 磅", round_pt(p / 20.0));
             }
@@ -220,13 +224,15 @@ fn strip_trailing_kv(v: &str) -> &str {
 /// 旧实现“先整体压掉空白再子串查找”会把下一个键名吞进当前值
 /// （得到 "exactline=400"），导致行距翻译失配。现在改为：
 ///   - gap 表记录压缩前每个字符之前原本是否有空白；
-///   - 候选键必须出现在原串的词边界上（串首或空白之后），
-///     因此查 "line" 不会误命中 "linerule" 内部；
-///   - 值扫描遇到 `;` 停止；遇到形如 `xxx=` 的 token 即截断：
-///     词边界上的 `xxx=` 是真正的“下一个键”；非边界上的 `xxx=`
-///     是被压缩空白粘连进来的键名（如 exact|line=），其后的数值
-///     属于下一个键，同样不属于当前值。
-///     例："lineRule=exact line=400" 中查 "linerule" 得到 "exact"；
+///   - 候选键必须出现在原串的词边界上（串首、前一字符非字母/数字、
+///     或该位置原本紧跟空白），因此查 "line" 不会误命中
+///     "linerule" 的内部片段；
+///   - 值扫描遇到 `;` 停止；遇到词边界上的 `xxx=` token 即截断
+///     （那是真正的“下一个键”）；被压缩空白粘连进值内部的 `xxx=`
+///     （如 exact|line=）不作为截断点，扫描继续前进，
+///     由调用方通过 [`strip_trailing_kv`] 剥离粘连的尾部键值对。
+///     例："lineRule=exact line=400" 中查 "linerule" 得到
+///     "exactline=400"（plain_term 再剥离出 "exact"）；
 ///     查 "line" 得到 "400"。
 fn extract_key_value(s: &str, key: &str) -> Option<String> {
     // gap[i] == true 表示压缩串第 i 个 char 之前，原串中存在空白。
@@ -249,18 +255,18 @@ fn extract_key_value(s: &str, key: &str) -> Option<String> {
     debug_assert_eq!(compact.chars().count(), gap.len());
     let chars: Vec<char> = compact.chars().collect();
     let n = chars.len();
+    let key_chars: Vec<char> = key.chars().collect();
+    let klen = key_chars.len();
     let mut found: Option<String> = None;
-    let mut idx = 0usize;
-    // 逐个考察 key 在压缩串中的所有出现位置；只接受位于“词边界”上的键。
-    while let Some(rel) = compact[idx..].find(key) {
-        let p = idx + rel; // 键起点（本串全 ASCII，字节数 == 字符数）
-        let before_ok = p == 0 || {
-            // 键前一字符不是字母/数字，或者键本身紧跟在原串空白之后。
-            gap[p] || !(chars[p - 1].is_ascii_alphanumeric())
-        };
-        let after_ok = p + key.len() < n && chars[p + key.len()] == '=';
-        if before_ok && after_ok {
-            let start = p + key.len() + 1;
+    // 在压缩串上逐字符滑动匹配 key（不能用 str::find：跨切片索引会错位）。
+    // 遍历所有可能的键起点 p ∈ [0, n-klen-1]（键后至少要有一个 '='）。
+    for p in 0..n.saturating_sub(klen) {
+        // 键后面必须紧跟 '='，否则不是本键的出现位置。
+        let hit = chars[p..p + klen] == key_chars[..] && chars[p + klen] == '=';
+        // 键必须出现在原串的词边界上，避免命中更长键名的内部片段。
+        let before_ok = p == 0 || gap[p] || !(chars[p - 1].is_ascii_alphanumeric());
+        if hit && before_ok {
+            let start = p + klen + 1;
             let mut end = start;
             while end < n {
                 let c = chars[end];
@@ -272,15 +278,11 @@ fn extract_key_value(s: &str, key: &str) -> Option<String> {
                     while j < n && chars[j].is_ascii_alphanumeric() {
                         j += 1;
                     }
-                    // 形如 `xxx=` 的 token：只要它出现在原串的词边界上
-                    // （值起点，或原本紧跟空白）就是“下一个键”，在此截断；
-                    // 粘连进值内部的同名片段（end != start 且无 gap）不作边界。
-                    // 例："lineRule=exact line=400" 压缩为
-                    // "linerule=exactline=400"，查 linerule 时 exact|line=
-                    // 粘连在值内不算键边界，扫描继续前进直到串尾，
-                    // 得到 "exactline=400"；随后 plain_term 会剥离粘连的
-                    // 尾部键值对，取出枚举词 "exact"。
-                    if j < n && chars[j] == '=' && (end == start || gap[end]) {
+                    // 词边界上的 `xxx=` 是“下一个键”，在此截断；
+                    // 粘连进值内部的同名片段（前一字符为字母/数字且无 gap）不截断。
+                    let boundary =
+                        gap[end] || !(end > 0 && chars[end - 1].is_ascii_alphanumeric());
+                    if j < n && chars[j] == '=' && boundary {
                         break;
                     }
                     end = j.max(end + 1);
@@ -293,7 +295,6 @@ fn extract_key_value(s: &str, key: &str) -> Option<String> {
                 found = Some(val); // 多处命中取最后一处
             }
         }
-        idx = p + key.len();
     }
     found
 }
