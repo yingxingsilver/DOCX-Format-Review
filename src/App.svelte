@@ -1,30 +1,108 @@
 <!--
-  App.svelte —— 骨架页面。
-  仅负责展示与调用 Tauri 命令，不包含任何审核业务逻辑。
+  App.svelte —— P8B 主布局组合根。
+  Svelte 5 runes 风格（项目 svelte ^5.57）。
+
+  职责：
+  - 组合 Header + 左栏任务配置（FilePicker / RuleSelector / ActionPanel）
+    + 右栏工作区（WorkspacePanel）；
+  - 从状态层读取全局状态，把动作以回调形式下发给子组件；
+  - 不直接调用 Tauri invoke，不含 DOCX 审核业务逻辑。
+
+  状态来源说明：本阶段使用 src/lib/uiState.ts（可本地模拟的五态状态机），
+  其字段与动作命名和 src/lib/stores.ts（P8A 后端接线层）一一对应；
+  接入真实后端时把下方 import 换成 "./lib/stores" 并关闭 simulateLocally 即可。
 -->
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
-  import ReportExport from "./ReportExport.svelte";
+  import FilePicker from "./components/FilePicker.svelte";
+  import RuleSelector from "./components/RuleSelector.svelte";
+  import ActionPanel from "./components/ActionPanel.svelte";
+  import WorkspacePanel from "./components/WorkspacePanel.svelte";
+  import {
+    status,
+    inputDir,
+    ruleFileName,
+    includeSubdirs,
+    generateAnnotatedDocx,
+    fileCount,
+    errorMessage,
+    progress,
+    summaryCounts,
+    chooseInputDir,
+    chooseRuleFile,
+    resetRule,
+    startAudit,
+    cancelAudit,
+    clearResults,
+    exportHtml,
+    exportCsv,
+  } from "./lib/uiState";
 
-  let coreVer = $state("检测中…");
+  /** 未选择文件夹时禁用「开始批量审核」。 */
+  const canStart = $derived($inputDir !== null);
+  /** done/cancelled/error 或已有摘要时允许清空结果。 */
+  const hasResults = $derived(
+    $status === "done" || $status === "cancelled" || $status === "error" || $summaryCounts !== null,
+  );
 
-  $effect(() => {
-    invoke<string>("core_version")
-      .then((v) => (coreVer = v))
-      .catch(() => (coreVer = "未连接"));
-  });
+  /** 拖拽回调占位：后续在此接 Tauri 窗口级 drag-drop 的真实路径。 */
+  function handleDropPath(_path: string): void {
+    // TODO(P8C): 接入 Tauri onDragDropEvent，拿到真实目录后写入 inputDir 并刷新计数。
+  }
 </script>
 
-<main class="min-h-screen bg-base-200 flex flex-col items-center justify-center gap-6 p-8">
-  <div class="text-center">
-    <h1 class="text-2xl font-bold">论文格式审核系统准备就绪</h1>
-    <p class="opacity-70 mt-2">批量 DOCX 格式检查 · 本地运行 · 无需联网 · 不使用 AI</p>
-    <p class="text-sm text-primary mt-4">核心引擎版本：{coreVer}</p>
-  </div>
+<div data-theme="light" class="min-h-screen bg-base-200 text-base-content min-w-[1024px] lg:min-w-0">
+  <!-- 顶部 Header -->
+  <header class="bg-base-100 border-b border-base-200">
+    <div class="mx-auto max-w-screen-2xl px-4 py-3 lg:px-6">
+      <h1 class="text-xl font-bold text-base-content leading-tight">论文格式批量审核系统</h1>
+      <p class="text-sm text-base-content/60 pt-0.5">
+        离线检查 DOCX 字号、字体、行距、标题、标点等格式问题
+      </p>
+    </div>
+  </header>
 
-  <!-- P6：报告导出面板。审核结果将由批量检查阶段（P5 UI）接入后传入。 -->
-  <div class="w-full max-w-md">
-    <ReportExport />
-  </div>
-</main>
+  <!-- 主体两栏：≥1024px 左右分栏，更窄时上下堆叠 -->
+  <main class="mx-auto max-w-screen-2xl p-4 lg:p-6 grid gap-4 lg:gap-6 grid-cols-1 lg:grid-cols-[380px_minmax(0,1fr)]">
+    <!-- 左栏：任务配置区 -->
+    <div class="flex flex-col gap-4 lg:gap-6">
+      <FilePicker
+        inputDir={$inputDir}
+        status={$status}
+        fileCount={$fileCount}
+        onChoose={chooseInputDir}
+        onDropPath={handleDropPath}
+      />
+      <RuleSelector
+        ruleFileName={$ruleFileName}
+        status={$status}
+        onChoose={chooseRuleFile}
+        onReset={resetRule}
+      />
+      <ActionPanel
+        status={$status}
+        canStart={canStart}
+        includeSubdirs={$includeSubdirs}
+        generateAnnotatedDocx={$generateAnnotatedDocx}
+        hasResults={hasResults}
+        errorMessage={$errorMessage}
+        exportsReady={false}
+        onIncludeSubdirsChange={(v) => includeSubdirs.set(v)}
+        onGenerateAnnotatedChange={(v) => generateAnnotatedDocx.set(v)}
+        onStart={startAudit}
+        onCancel={cancelAudit}
+        onClear={clearResults}
+        onExportHtml={exportHtml}
+        onExportCsv={exportCsv}
+      />
+    </div>
 
+    <!-- 右栏：状态与结果工作区 -->
+    <WorkspacePanel
+      status={$status}
+      progress={$progress}
+      summary={$summaryCounts}
+      errorMessage={$errorMessage}
+      onRestart={clearResults}
+    />
+  </main>
+</div>
