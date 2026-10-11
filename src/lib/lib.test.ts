@@ -5,39 +5,79 @@ import { get } from "svelte/store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---- mock Tauri 边界 ----
-// 注意：vi.mock 工厂会被 vitest 提升，只能引用 `vi` 本身；
-// 所有共享状态统一挂在 vi.fn 的 .mock 对象上（跨模块稳定可达）。
-const invokeMock = vi.fn();
-const dialogOpenMock = vi.fn();
-const openPathMock = vi.fn();
+// 注意：vi.mock 工厂会被 vitest 提升到文件顶部（先于普通 import/const 执行），
+// 因此共享状态必须放进 vi.hoisted；类型化通道对象挂在带索引签名的
+// globalThis 上（而非直接写 globalThis.__xxx，那会触发 tsc 的
+// "type 'typeof globalThis' has no index signature"）。
+type UnlistenFn = () => void;
+type InvokeMock = ReturnType<typeof vi.fn>;
+type DialogMock = ReturnType<typeof vi.fn>;
+type OpenPathMock = ReturnType<typeof vi.fn>;
+type ListenHandler = (e: { payload: unknown }) => void;
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => (globalThis.__invoke as (...x: unknown[]) => unknown)(...a) }));
-vi.mock("@tauri-apps/api/event", () => ({
-  listen: (event: string, handler: (e: { payload: unknown }) => void) =>
-    (globalThis.__listen as (ev: string, h: (e: { payload: unknown }) => void) => Promise<() => void>)(event, handler),
+interface MockChannels {
+  invokeMock: InvokeMock;
+  dialogOpenMock: DialogMock;
+  openPathMock: OpenPathMock;
+  /** 事件名 -> 已注册 handler，供测试 fire() 手动触发 */
+  handlers: Record<string, ListenHandler>;
+  /** 取消函数登记表，验证 disposeAuditEvents 是否全部清理 */
+  unlisteners: UnlistenFn[];
+}
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __p8aMocks: MockChannels | undefined;
+}
+
+vi.hoisted(() => {
+  (globalThis as Record<string, unknown>).__p8aMocks = {
+    invokeMock: vi.fn(),
+    dialogOpenMock: vi.fn(),
+    openPathMock: vi.fn(),
+    handlers: {},
+    unlisteners: [],
+  };
+});
+
+function ch(): MockChannels {
+  const c = (globalThis as Record<string, unknown>).__p8aMocks as MockChannels | undefined;
+  if (!c) throw new Error("mock 通道未初始化");
+  return c;
+}
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (...a: unknown[]) => ch().invokeMock(...a),
 }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: (...a: unknown[]) => (globalThis.__dialog as (...x: unknown[]) => unknown)(...a) }));
-vi.mock("@tauri-apps/plugin-opener", () => ({ openPath: (...a: unknown[]) => (globalThis.__openPath as (...x: unknown[]) => unknown)(...a) }));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: (event: string, handler: ListenHandler) => {
+    const c = ch();
+    c.handlers[event] = handler;
+    const unlisten = () => {
+      delete c.handlers[event];
+    };
+    c.unlisteners.push(unlisten);
+    return Promise.resolve(unlisten);
+  },
+}));
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  open: (...a: unknown[]) => ch().dialogOpenMock(...a),
+}));
+vi.mock("@tauri-apps/plugin-opener", () => ({
+  openPath: (path: string) => ch().openPathMock(path),
+}));
 
-// 把上面的真实 mock 函数接到 globalThis 通道（工厂内只允许引用 globalThis/vi）。
-(globalThis as unknown as Record<string, unknown>).__invoke = invokeMock;
-(globalThis as unknown as Record<string, unknown>).__dialog = dialogOpenMock;
-(globalThis as unknown as Record<string, unknown>).__openPath = openPathMock;
-(globalThis as unknown as Record<string, unknown>).__listen = (event: string, handler: (e: { payload: unknown }) => void) => {
-  const handlers = ((invokeMock as unknown as { handlers?: Record<string, (e: { payload: unknown }) => void> }).handlers ??= {});
-  handlers[event] = handler;
-  return Promise.resolve(() => {
-    delete handlers[event];
-  });
-};
+const invokeMock = ch().invokeMock;
+const dialogOpenMock = ch().dialogOpenMock;
+const openPathMock = ch().openPathMock;
+const channels = ch();
 
 import * as api from "./api";
 import * as stores from "./stores";
 import type { AuditReport, Location, Violation } from "./types";
 
 function fire(event: string, payload: unknown): void {
-  const h = (invokeMock as unknown as { handlers?: Record<string, (e: { payload: unknown }) => void> })
-    .handlers?.[event];
+  const h = channels.handlers[event];
   if (!h) throw new Error(`未注册监听: ${event}`);
   h({ payload });
 }
@@ -98,10 +138,10 @@ function makeReport(): AuditReport {
 
 beforeEach(() => {
   invokeMock.mockReset();
-  listenMock.mockReset();
-  delete (invokeMock as unknown as { handlers?: unknown }).handlers;
   dialogOpenMock.mockReset();
   openPathMock.mockReset();
+  for (const key of Object.keys(channels.handlers)) delete channels.handlers[key];
+  channels.unlisteners.length = 0;
   stores.disposeAuditEvents();
   stores.resetAll();
 });
@@ -208,7 +248,6 @@ describe("stores.ts 动作与状态机", () => {
   it("日志超过上限时截断旧行", () => {
     // pushLog 为内部函数，通过公开事件通道验证：注册监听后灌入 600 条日志。
     invokeMock.mockResolvedValue("job-log");
-    dialogOpenMock.mockResolvedValue("/tmp/papers");
     stores.inputDir.set("/tmp/papers");
     stores.rulePath.set("/tmp/rules.json");
     return stores.startAudit().then(() => {
@@ -219,12 +258,29 @@ describe("stores.ts 动作与状态机", () => {
       expect(ls.length).toBeLessThanOrEqual(500);
       expect(ls[ls.length - 1]).toBe("第599行");
       expect(ls).not.toContain("第0行");
+
+      // 关键：必须 await 释放。否则本用例遗留的 running 状态与 jobId="job-log"
+      // 会越过下一个 beforeEach（resetAll 在 running 时拒绝重置），
+      // 导致后续 cancelAudit 用例误触发后端调用。
+      fire("audit://done", { job_id: "job-log", cancelled: false, report: makeReport() });
     });
   });
 
   it("cancelAudit 仅在 running 且有 jobId 时调用后端", async () => {
+    // idle 状态：不应调用后端。
     await stores.cancelAudit();
     expect(invokeMock).not.toHaveBeenCalledWith("cancel_audit", expect.anything());
+
+    // running + jobId：应调用一次 cancel_audit。
+    invokeMock.mockResolvedValue("job-cancel");
+    dialogOpenMock.mockResolvedValue("/tmp/papers");
+    stores.inputDir.set("/tmp/papers");
+    stores.rulePath.set("/tmp/rules.json");
+    await stores.startAudit();
+    expect(get(stores.status)).toBe("running");
+    invokeMock.mockClear();
+    await stores.cancelAudit();
+    expect(invokeMock).toHaveBeenCalledWith("cancel_audit", { jobId: "job-cancel" });
   });
 
   it("exportHtml 无结果时中文提示", async () => {
