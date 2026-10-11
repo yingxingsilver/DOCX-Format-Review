@@ -8,7 +8,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { openPath } from "@tauri-apps/plugin-opener";
+import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import type {
   ApiResult,
   AuditOptions,
@@ -79,13 +79,19 @@ export async function listDocxFiles(dir: string): Promise<ApiResult<FileMeta[]>>
   }
 }
 
-/**
- * 启动一次批量审核任务。
+/** 启动一次批量审核任务（P8D：对应后端真实命令）。
  * 后端立即返回 job_id，进度/结果通过 `audit://*` 事件推送。
+ * 注意：参数按 Tauri v2 规则转成 camelCase 键（inputDir / ruleFile / …），
+ * 与 commands.rs 中 start_audit 的形参一一对应；rule_file 为 null 时后端使用内置通用规则。
  */
 export async function startAudit(options: AuditOptions): Promise<ApiResult<string>> {
   try {
-    const jobId = await invoke<string>("start_audit", { options });
+    const jobId = await invoke<string>("start_audit", {
+      inputDir: options.input_dir,
+      ruleFile: options.rule_file ?? null,
+      includeSubdirs: options.include_subdirs ?? true,
+      generateAnnotatedDocx: options.generate_annotated_docx ?? false,
+    });
     return { ok: true, data: jobId };
   } catch (e) {
     return { ok: false, user_message: toUserMessage(e) };
@@ -120,13 +126,39 @@ export async function exportReport(
   }
 }
 
-/** 用系统默认程序打开文件或文件夹（如打开报告 HTML）。 */
+/** 用系统默认程序打开文件或文件夹（如打开报告 HTML / 所在文件夹）。 */
 export async function openPathInShell(path: string): Promise<ApiResult<null>> {
   try {
     await openPath(path);
     return { ok: true, data: null };
   } catch (e) {
-    return { ok: false, user_message: "无法打开该位置：" + toUserMessage(e) };
+    // P8D：opener 权限不足 / 系统无法处理时给出中文提示，绝不崩溃。
+    const msg = toUserMessage(e);
+    if (/permission|denied|opener/i.test(msg)) {
+      return {
+        ok: false,
+        user_message:
+          "没有权限自动打开该文件（系统安全限制）。请手动前往保存位置双击打开。",
+      };
+    }
+    return { ok: false, user_message: "无法打开该位置：" + msg };
+  }
+}
+
+/** 在系统文件管理器中打开某路径所在的文件夹。 */
+export async function revealDirInFiles(absPath: string): Promise<ApiResult<null>> {
+  try {
+    await revealItemInDir(absPath);
+    return { ok: true, data: null };
+  } catch (e) {
+    const msg = toUserMessage(e);
+    if (/permission|denied|opener/i.test(msg)) {
+      return {
+        ok: false,
+        user_message: "没有权限打开文件夹（系统安全限制），请手动前往保存位置查看。",
+      };
+    }
+    return { ok: false, user_message: "无法打开文件夹：" + msg };
   }
 }
 

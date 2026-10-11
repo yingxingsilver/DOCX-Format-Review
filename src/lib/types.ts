@@ -85,10 +85,15 @@ export interface FileMeta {
   modified_unix: number;
 }
 
-/** start_audit 的参数（对应 Rust `AuditOptions`）。 */
+/** start_audit 的参数（对应 Rust `AuditOptions`，字段 snake_case 与 serde 一致）。 */
 export interface AuditOptions {
   input_dir: string;
-  rule_file: string;
+  /** null / 缺省 = 使用内置通用规则。 */
+  rule_file?: string | null;
+  /** 是否一并扫描子文件夹（后端始终递归，此标志用于前端展示与校验）。 */
+  include_subdirs?: boolean;
+  /** 是否为每个有问题的文件生成标注版 DOCX 副本。 */
+  generate_annotated_docx?: boolean;
 }
 
 /**
@@ -137,4 +142,16 @@ export interface ErrorEvent {
   job_id: string;
   /** 中文、可直接展示给用户。 */
   user_message: string;
+}
+
+/**
+ * 一次审核产出的文件路径清单（对应 Rust `ExportedFiles`）。
+ * 后端在导出报告 / 生成标注版 DOCX 后随事件或返回值下发，供 ExportBar「打开文件」使用。
+ */
+export interface ExportedFiles {
+  /** 相对 input_dir 的 POSIX 风格路径，如 "论文格式检查报告.html"。 */
+  rel_path: string;
+  /** 绝对路径（展示与 shell 打开用）。 */
+  abs_path: string;
+  kind: "html" | "csv" | "annotated_docx";
 }

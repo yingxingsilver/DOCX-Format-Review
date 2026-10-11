@@ -22,31 +22,36 @@
   import ResultTable from "./components/ResultTable.svelte";
   import ViolationDetail from "./components/ViolationDetail.svelte";
   import LogPanel from "./components/LogPanel.svelte";
-  import {
-    status,
-    inputDir,
-    ruleFileName,
-    includeSubdirs,
-    generateAnnotatedDocx,
-    fileCount,
-    errorMessage,
-    progress,
-    summaryCounts,
-    currentFileName,
-    stageLabel,
-    report,
-    selectedFile,
-    logs,
-    chooseInputDir,
-    chooseRuleFile,
-    resetRule,
-    startAudit,
-    cancelAudit,
-    clearResults,
-    exportHtml,
-    exportCsv,
-    selectFile,
-  } from "./lib/uiState";
+// P8D：状态层从本地模拟（uiState）切换到真实后端接线（stores + Tauri 命令）。
+import {
+  status,
+  inputDir,
+  rulePath,
+  files,
+  includeSubdirs,
+  generateAnnotatedDocx,
+  errorMessage,
+  progress,
+  currentFileName,
+  stageLabel,
+  summary,
+  selectedFile,
+  logs,
+  exporting,
+  exportedFiles,
+  notice,
+  chooseInputDir,
+  chooseRuleFile,
+  resetRule,
+  startAudit,
+  cancelAudit,
+  clearResults,
+  exportHtml,
+  exportCsv,
+  openExportedFile,
+  openReportFolder,
+  selectFile,
+} from "./lib/stores";
 
   /** 未选择文件夹时禁用「开始批量审核」。 */
   const canStart = $derived($inputDir !== null);
