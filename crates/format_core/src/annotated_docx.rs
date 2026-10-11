@@ -107,6 +107,12 @@ fn zip_err(source: zip::result::ZipError) -> CoreError {
     }
 }
 
+/// `Read`/`Write` 适配器：zip 条目解压失败会以 `std::io::Error` 抛出，
+/// 统一包装回 [`CoreError::Zip`]（zip crate 官方推荐做法）。
+fn io_to_zip_err(source: std::io::Error) -> CoreError {
+    zip_err(zip::result::ZipError::Io(source))
+}
+
 fn xml_err(source: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> CoreError {
     CoreError::Xml {
         part: "word/document.xml".into(),
@@ -128,7 +134,7 @@ fn read_document_part(zip_bytes: &[u8], path: &Path) -> CoreResult<Vec<u8>> {
         if entry.name() != "word/document.xml" {
             continue;
         }
-        if entry.is_encrypted() {
+        if entry.encrypted() {
             return Err(CoreError::Zip {
                 note: "文档已加密，请先在 Word 中取消密码后再进行标注。".into(),
                 source: "encrypted document part".into(),
@@ -142,7 +148,7 @@ fn read_document_part(zip_bytes: &[u8], path: &Path) -> CoreResult<Vec<u8>> {
             });
         }
         let mut buf = Vec::new();
-        entry.read_to_end(&mut buf).map_err(xml_err)?;
+        entry.read_to_end(&mut buf).map_err(io_to_zip_err)?;
         return Ok(buf);
     }
     Err(CoreError::MissingPart {
@@ -179,14 +185,14 @@ fn repack_zip(
         if name == replaced_name {
             continue; // 稍后用新内容统一写入
         }
-        if entry.is_encrypted() {
+        if entry.encrypted() {
             return Err(CoreError::Zip {
                 note: "文档包含加密内容，请先在 Word 中取消密码后再进行标注。".into(),
                 source: "encrypted entry".into(),
             });
         }
         let mut buf = Vec::new();
-        entry.read_to_end(&mut buf).map_err(zip_err)?;
+        entry.read_to_end(&mut buf).map_err(io_to_zip_err)?;
         // 保留原始压缩方式，避免把已存储条目强行 deflate。
         let per_entry = options.compression_method(entry.compression());
         writer.start_file(name, per_entry).map_err(zip_err)?;
@@ -213,6 +219,9 @@ fn repack_zip(
 #[derive(Debug, Clone)]
 struct RunInfo {
     text: String,
+    /// 扫描阶段记录该 run 是否已带 w:highlight；供未来「只加亮未高亮 run」策略使用。
+    /// 当前 rewrite_document 用独立状态机做幂等判断，此字段暂不参与决策。
+    #[allow(dead_code)]
     has_highlight: bool,
 }
 
@@ -549,7 +558,7 @@ fn write_open_rpr(writer: &mut Writer<Vec<u8>>) -> CoreResult<()> {
 
 fn write_close_rpr(writer: &mut Writer<Vec<u8>>) -> CoreResult<()> {
     let el = BytesStart::new("w:rPr");
-    writer.write_event(Event::End(el.into_end())).map_err(xml_err)
+    writer.write_event(Event::End(el.to_end())).map_err(xml_err)
 }
 
 fn write_highlight(writer: &mut Writer<Vec<u8>>, color: &str) -> CoreResult<()> {
@@ -734,7 +743,8 @@ mod tests {
     fn corrupt_zip_returns_chinese_error() {
         let dir = tmpdir("corrupt");
         let src = dir.join("坏文件.docx");
-        std::fs::write(&src, b"PK\x03\x04 后面全是垃圾").unwrap();
+        // 注意：b"..." 字节串字面量只允许 ASCII，中文用普通字符串转 bytes。
+        std::fs::write(&src, format!("PK\x03\x04 {}", "后面全是垃圾").as_bytes()).unwrap();
         let out = dir.join("out.docx");
         let e = generate_annotated_docx(&src, &[], &out).unwrap_err();
         assert!(matches!(e, CoreError::Zip { .. }), "got {e:?}");
