@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "PaperFormatAuditor",
+  "productName": "论文格式审核系统",
   "version": "0.1.0",
   "identifier": "edu.paper-format.auditor",
   "build": {
@@ -25,6 +25,6 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all"
+    "targets": ["nsis"]
   }
 }
