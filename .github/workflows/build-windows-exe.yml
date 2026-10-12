@@ -1,11 +1,12 @@
-name: CI
+name: Build Windows NSIS
 
 on:
   workflow_dispatch:
     inputs:
       version_tag:
-        description: 'Release 版本号 (如 v1.0.0)'
+        description: 'Release tag (e.g. v0.1.0)'
         required: true
+        type: string
         default: 'v0.1.0'
 
 permissions:
@@ -15,8 +16,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  release:
-    name: Build Windows NSIS
+  build-windows-nsis:
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -33,31 +33,29 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: "."
-          key: release-windows
-          cache-all-crates: "true"
+          workspaces: src-tauri -> target
 
-      - name: Install frontend deps & build
-        run: |
-          npm ci
-          npm run build
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Create Tag
+      - name: Create tag if missing
         shell: bash
+        env:
+          TAG: ${{ inputs.version_tag }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if ! git rev-parse "${{ inputs.version_tag }}" >/dev/null 2>&1; then
-            git tag ${{ inputs.version_tag }}
-            git push origin ${{ inputs.version_tag }}
+          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+            git tag "$TAG"
+            git push origin "$TAG"
           fi
 
-      - name: Tauri Build (NSIS)
+      - name: Build and release NSIS
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ inputs.version_tag }}
-          releaseName: "论文格式审核系统 ${{ inputs.version_tag }}"
-          releaseBody: "Windows NSIS 安装包 | Commit: ${{ github.sha }}"
-          releaseDraft: false
+          releaseName: "PaperFormatAuditor ${{ inputs.version_tag }}"
+          releaseBody: "Windows NSIS installer | Commit: ${{ github.sha }}"
+          releaseDraft: true
