@@ -24,7 +24,6 @@
     }
   },
   "bundle": {
-    "active": true,
-    "targets": "all"
+    "active": false
   }
 }
