@@ -57,11 +57,12 @@ jobs:
             git push origin ${{ inputs.version_tag }}
           fi
 
-      # 强制不打包，仅生成裸 EXE
-      - name: Build Windows EXE (no bundle)
-        run: npx --no-install tauri build --no-bundle
+      # ★ 关键：直接用 cargo build，绕过 tauri build 的路径/命名不确定性
+      - name: Build Rust Backend (EXE only)
+        working-directory: src-tauri
+        run: cargo build --release -p paper-format-auditor
 
-      # 使用通配符 *.exe 彻底避免文件名匹配失败
+      # ★ 产物路径由 Cargo 严格保证，无中文、无歧义
       - name: Upload EXE to Release
         uses: softprops/action-gh-release@v2
         env:
@@ -71,4 +72,4 @@ jobs:
           draft: true
           append_body: true
           fail_on_unmatched_files: true
-          files: src-tauri/target/release/*.exe
+          files: src-tauri/target/release/paper-format-auditor.exe
