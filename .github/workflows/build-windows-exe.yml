@@ -57,11 +57,11 @@ jobs:
             git push origin ${{ inputs.version_tag }}
           fi
 
-      # ★ 关键：使用 --no-bundle 确保生成裸 EXE
+      # 强制不打包，仅生成裸 EXE
       - name: Build Windows EXE (no bundle)
         run: npx --no-install tauri build --no-bundle
 
-      # ★ 关键：文件名必须匹配 productName
+      # 修正参数：fail_on_unmatched_files
       - name: Upload EXE to Release
         uses: softprops/action-gh-release@v2
         env:
@@ -70,7 +70,5 @@ jobs:
           tag_name: ${{ inputs.version_tag }}
           draft: true
           append_body: true
-          files: |
-            src-tauri/target/release/论文格式审核系统.exe
-            src-tauri/target/release/paper-format-auditor.exe
-          if-no-files-found: error
+          fail_on_unmatched_files: true
+          files: src-tauri/target/release/paper-format-auditor.exe
