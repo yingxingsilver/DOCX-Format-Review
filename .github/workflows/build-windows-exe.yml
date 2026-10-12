@@ -1,4 +1,4 @@
-name: Build Windows EXE
+name: CI
 
 on:
   workflow_dispatch:
@@ -15,39 +15,34 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-windows-exe:
-    name: 构建 Windows EXE
+  release:
+    name: Build Windows NSIS
     runs-on: windows-latest
     timeout-minutes: 60
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: "src-tauri -> target"
-          key: windows-exe
+          workspaces: "."
+          key: release-windows
           cache-all-crates: "true"
 
-      - name: Install frontend dependencies and build
+      - name: Install frontend deps & build
         run: |
           npm ci
           npm run build
 
-      - name: Create Git Tag
+      - name: Create Tag
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
@@ -57,19 +52,12 @@ jobs:
             git push origin ${{ inputs.version_tag }}
           fi
 
-      # ★ 关键：直接用 cargo build，绕过 tauri build 的路径/命名不确定性
-      - name: Build Rust Backend (EXE only)
-        working-directory: src-tauri
-        run: cargo build --release -p paper-format-auditor
-
-      # ★ 产物路径由 Cargo 严格保证，无中文、无歧义
-      - name: Upload EXE to Release
-        uses: softprops/action-gh-release@v2
+      - name: Tauri Build (NSIS)
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ inputs.version_tag }}
-          draft: true
-          append_body: true
-          fail_on_unmatched_files: true
-          files: src-tauri/target/release/paper-format-auditor.exe
+          tagName: ${{ inputs.version_tag }}
+          releaseName: "论文格式审核系统 ${{ inputs.version_tag }}"
+          releaseBody: "Windows NSIS 安装包 | Commit: ${{ github.sha }}"
+          releaseDraft: false
