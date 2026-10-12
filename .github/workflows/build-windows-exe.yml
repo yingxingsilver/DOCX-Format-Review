@@ -61,7 +61,7 @@ jobs:
       - name: Build Windows EXE (no bundle)
         run: npx --no-install tauri build --no-bundle
 
-      # 修正参数：fail_on_unmatched_files
+      # 使用通配符 *.exe 彻底避免文件名匹配失败
       - name: Upload EXE to Release
         uses: softprops/action-gh-release@v2
         env:
@@ -71,4 +71,4 @@ jobs:
           draft: true
           append_body: true
           fail_on_unmatched_files: true
-          files: src-tauri/target/release/paper-format-auditor.exe
+          files: src-tauri/target/release/*.exe
