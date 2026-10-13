@@ -44,7 +44,7 @@ const SRC_DOC_DEFAULTS: &str = "doc_defaults";
 /// 把 `from` 中 target 尚为空的字段填入；若提供 sources+tag 则同步标注来源。
 fn merge_run_props(
     target: &mut DirectRunProps,
-    sources: Option<&mut FormatSources>,
+    mut sources: Option<&mut FormatSources>,
     from: &DirectRunProps,
     tag: &str,
 ) {
@@ -78,7 +78,7 @@ fn merge_run_props(
 
 fn merge_para_props(
     target: &mut DirectParagraphProps,
-    sources: Option<&mut FormatSources>,
+    mut sources: Option<&mut FormatSources>,
     from: &DirectParagraphProps,
     tag: &str,
 ) {
@@ -115,7 +115,7 @@ fn merge_sources(target: &mut FormatSources, extra: &FormatSources) {
     }
 }
 
-fn style_name<'a>(styles: &'a HashMap<String, StyleDefinition>, id: &str) -> &'a str {
+fn style_name<'a>(styles: &'a HashMap<String, StyleDefinition>, id: &'a str) -> &'a str {
     styles
         .get(id)
         .and_then(|s| s.name.as_deref())
