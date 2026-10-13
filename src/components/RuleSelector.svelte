@@ -20,26 +20,26 @@
   const disabled = $derived(status === "running");
 </script>
 
-<section class="card bg-base-100 border border-base-200 shadow-sm" aria-label="格式规则">
-  <div class="card-body gap-3">
-    <h2 class="text-lg font-semibold text-base-content">格式规则</h2>
+<section class="card border border-line bg-white" aria-label="格式规则">
+  <div class="card-body gap-4">
+    <h2 class="font-heading text-[17px] font-semibold text-ink leading-none">格式规则</h2>
 
     <div class="flex items-center justify-between gap-2">
       <div class="min-w-0">
         {#if ruleFileName}
-          <p class="truncate text-sm text-base-content" title={ruleFileName}>
+          <p class="truncate text-sm text-ink-2" title={ruleFileName}>
             当前规则：{ruleFileName}
           </p>
         {:else}
-          <p class="text-sm text-base-content">
-            <span class="badge badge-success badge-sm mr-1">默认</span>
-            使用内置通用规则
+          <p class="text-sm text-ink-2">
+            <span class="badge badge-success badge-sm mr-1.5">内置规则</span>
+            教育类论文通用格式要求
           </p>
         {/if}
       </div>
       {#if ruleFileName && !disabled}
         <button type="button" class="btn btn-ghost btn-sm shrink-0" onclick={onReset}>
-          恢复默认规则
+          恢复默认
         </button>
       {/if}
     </div>
@@ -56,11 +56,33 @@
       disabled={disabled}
       onclick={onChoose}
     >
-      {#if disabled}审核进行中，暂不可更改{:else}选择格式规则{/if}
+      <span class="icon" style="--icon-size:16px" aria-hidden="true">{@html ICONS.ruler}</span>
+      {#if disabled}审核进行中，暂不可更改{:else}选择规则文件{/if}
     </button>
 
-    <p class="text-sm text-base-content/60">
-      可不选择，系统会使用内置教育类论文通用规则。
+    <p class="text-sm text-subtle">
+      学校有单独的格式要求时，选择对应的规则文件；不选则使用内置通用规则。
     </p>
   </div>
 </section>
+
+<style>
+  .bg-white {
+    background-color: var(--bg);
+  }
+  .text-ink {
+    color: var(--ink);
+  }
+  .text-ink-2 {
+    color: var(--ink-2);
+  }
+  .text-subtle {
+    color: var(--muted);
+  }
+  .border-line {
+    border-color: var(--line);
+  }
+  .font-heading {
+    font-family: var(--font-heading);
+  }
+</style>
