@@ -298,7 +298,7 @@ describe("stores.ts 动作与状态机", () => {
   it("openAnnotatedFolder 打开输出文件夹；无结果时中文提示", async () => {
     openPathMock.mockClear();
     await stores.openAnnotatedFolder();
-    expect(get(stores.notice)?.text).toContain("还没有检查结果");
+    expect(get(stores.notice)?.text).toContain("还没有可导出的检查结果");
 
     stores.summary.set(makeReport());
     await stores.openAnnotatedFolder();
