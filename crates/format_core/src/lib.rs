@@ -22,6 +22,7 @@ pub mod annotated_docx;
 pub mod audit;
 pub mod checkers;
 pub mod docx_parser;
+pub mod derive_info;
 pub mod dsl;
 pub mod error;
 pub mod report;
