@@ -288,11 +288,21 @@ describe("stores.ts 动作与状态机", () => {
     expect(get(stores.notice)?.text).toContain("还没有可导出的检查结果");
   });
 
-  it("openReport 拼接默认导出路径", async () => {
+  it("openReport 拼接默认导出路径（输出子目录内）", async () => {
     stores.summary.set(makeReport());
     openPathMock.mockResolvedValue(undefined);
     await stores.openReport();
-    expect(openPathMock).toHaveBeenCalledWith("/tmp/papers/论文格式检查报告.html");
+    expect(openPathMock).toHaveBeenCalledWith("/tmp/papers/格式检查输出/论文格式检查报告.html");
+  });
+
+  it("openAnnotatedFolder 打开输出文件夹；无结果时中文提示", async () => {
+    openPathMock.mockClear();
+    await stores.openAnnotatedFolder();
+    expect(get(stores.notice)?.text).toContain("还没有检查结果");
+
+    stores.summary.set(makeReport());
+    await stores.openAnnotatedFolder();
+    expect(openPathMock).toHaveBeenCalledWith("/tmp/papers/格式检查输出");
   });
 });
 

@@ -16,7 +16,7 @@
     hasResults: boolean;
     /** error 状态的中文提示（alert-error 展示）。 */
     errorMessage: string | null;
-    /** 导出功能是否已接入本界面（P8B 占位：false → 禁用并提示）。 */
+    /** 导出功能是否已接入本界面（有检查结果后开放）。 */
     exportsReady?: boolean;
     onIncludeSubdirsChange: (v: boolean) => void;
     onGenerateAnnotatedChange: (v: boolean) => void;
@@ -25,6 +25,8 @@
     onClear: () => void;
     onExportHtml: () => void;
     onExportCsv: () => void;
+    /** 在系统文件管理器中打开输出文件夹（报告与标注版 DOCX 所在处）。 */
+    onOpenAnnotatedFolder?: () => void;
   }
 
   let {
@@ -42,6 +44,7 @@
     onClear,
     onExportHtml,
     onExportCsv,
+    onOpenAnnotatedFolder,
   }: Props = $props();
 
   const running = $derived(status === "running");
@@ -128,8 +131,8 @@
       清空结果
     </button>
 
-    <!-- 导出占位：不阻塞主流程 -->
-    {#if status === "done"}
+    <!-- 结果产物入口：报告 / 清单导出，以及打开输出文件夹（标注版 DOCX 在这里） -->
+    {#if status === "done" || status === "cancelled"}
       <div class="grid grid-cols-2 gap-2">
         <button
           type="button"
@@ -148,9 +151,19 @@
           导出 CSV 清单
         </button>
       </div>
-      {#if !exportsReady}
-        <p class="text-sm text-subtle -mt-2">导出入口将在结果页开放。</p>
+      {#if onOpenAnnotatedFolder}
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm w-full -mt-1"
+          disabled={!exportsReady}
+          onclick={onOpenAnnotatedFolder}
+        >
+          打开输出文件夹
+        </button>
       {/if}
+      <p class="text-sm text-subtle -mt-2">
+        报告与标注版 DOCX 保存在论文文件夹下的“格式检查输出”里。
+      </p>
     {/if}
 
     <!-- 状态提示（aria-live 便于读屏播报） -->

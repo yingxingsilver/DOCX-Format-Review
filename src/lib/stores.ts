@@ -22,6 +22,14 @@ import type {
 
 export const inputDir = writable<string | null>(null);
 export const rulePath = writable<string | null>(null);
+/** 恢复内置通用规则（不指定外部 .json 规则文件）。 */
+export function resetRule(): void {
+  if (get(status) === "running") return;
+  rulePath.set(null);
+}
+/** 审核选项：包含子文件夹 / 生成标注版 DOCX（UI 状态；后端 AuditOptions 就绪前暂不下发）。 */
+export const includeSubdirs = writable<boolean>(false);
+export const generateAnnotatedDocx = writable<boolean>(false);
 export const files = writable<FileMeta[]>([]);
 export const jobId = writable<string | null>(null);
 export const status = writable<AuditRunStatus>("idle");
@@ -172,6 +180,24 @@ export function disposeAuditEvents(): void {
 }
 
 // =========================
+// 默认输出目录（报告与标注版 DOCX 统一放这里）
+// =========================
+
+/** 结果输出子目录名：位于所选论文文件夹之下。 */
+export const OUTPUT_DIR_NAME = "格式检查输出";
+
+/** 拼接路径（Tauri 各平台均接受 "/" 分隔符，Windows 亦可）。 */
+function joinPath(dir: string, name: string): string {
+  const sep = dir.endsWith("/") || dir.endsWith("\\") ? "" : "/";
+  return `${dir}${sep}${name}`;
+}
+
+/** 本次结果的默认输出目录（论文文件夹下的「格式检查输出」）。 */
+export function outputDirOf(report: AuditReport): string {
+  return joinPath(report.input_dir, OUTPUT_DIR_NAME);
+}
+
+// =========================
 // Actions
 // =========================
 
@@ -265,10 +291,8 @@ async function doExport(format: "html" | "csv"): Promise<void> {
     setNotice("error", "还没有可导出的检查结果，请先运行一次检查。");
     return;
   }
-  const dir = report.input_dir;
   const ext = format === "html" ? "论文格式检查报告.html" : "论文格式问题清单.csv";
-  const sep = dir.endsWith("/") || dir.endsWith("\\") ? "" : "/";
-  const outPath = `${dir}${sep}${ext}`;
+  const outPath = joinPath(outputDirOf(report), ext);
   exporting.set(true);
   try {
     const res = await api.exportReport(report, outPath, format);
@@ -277,6 +301,9 @@ async function doExport(format: "html" | "csv"): Promise<void> {
     exporting.set(false);
   }
 }
+// =========================
+// 结果打开与导出（产物默认写入论文文件夹下的「格式检查输出」目录）
+// =========================
 
 /** 用系统默认程序打开最近一次导出的 HTML 报告。 */
 export async function openReport(): Promise<void> {
@@ -285,15 +312,37 @@ export async function openReport(): Promise<void> {
     setNotice("error", "还没有生成过报告，请先运行检查并导出。");
     return;
   }
-  const dir = report.input_dir;
-  const sep = dir.endsWith("/") || dir.endsWith("\\") ? "" : "/";
-  const res = await api.openPathInShell(`${dir}${sep}论文格式检查报告.html`);
+  const res = await api.openPathInShell(joinPath(outputDirOf(report), "论文格式检查报告.html"));
+  guard(res);
+}
+
+/** 在系统文件管理器中打开输出文件夹（报告与标注版 DOCX 都在这里）。 */
+export async function openAnnotatedFolder(): Promise<void> {
+  const report = get(summary);
+  if (!report) {
+    setNotice("error", "还没有检查结果，请先运行一次检查。");
+    return;
+  }
+  const res = await api.openPathInShell(outputDirOf(report));
   guard(res);
 }
 
 /** 选中某文件查看违规详情。 */
 export function selectFile(path: string | null): void {
   selectedFile.set(path);
+}
+
+/** 清空本次结果回到 idle，但保留已选文件夹与规则（换一批文件重审时用）。 */
+export function clearResults(): void {
+  if (get(status) === "running") return; // 运行中不允许清空，避免与事件竞态
+  status.set("idle");
+  errorMessage.set(null);
+  notice.set(null);
+  progress.set({ completed: 0, total: 0 });
+  currentFileName.set(null);
+  summary.set(null);
+  selectedFile.set(null);
+  logs.set([]);
 }
 
 /** 一键回到初始状态（换文件夹重审时用）。 */
