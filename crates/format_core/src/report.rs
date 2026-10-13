@@ -1017,6 +1017,7 @@ pub fn sample_demo_report() -> AuditReport {
         total_warnings: 1,
         total_infos: 0,
         files: vec![a, b, c],
+        output_dir: None,
     }
 }
 
@@ -1124,6 +1125,7 @@ mod tests {
             total_warnings: 1,
             total_infos: 1,
             files: vec![file],
+            output_dir: None,
         }
     }
 

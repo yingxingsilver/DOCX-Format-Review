@@ -192,9 +192,12 @@ function joinPath(dir: string, name: string): string {
   return `${dir}${sep}${name}`;
 }
 
-/** 本次结果的默认输出目录（论文文件夹下的「格式检查输出」）。 */
+/**
+ * 本次结果的输出目录：优先用后端（audit.rs 生成标注稿后）回填的 output_dir，
+ * 旧报告缺该字段时按约定路径兜底推导（论文文件夹下的「格式检查输出」）。
+ */
 export function outputDirOf(report: AuditReport): string {
-  return joinPath(report.input_dir, OUTPUT_DIR_NAME);
+  return report.output_dir ?? joinPath(report.input_dir, OUTPUT_DIR_NAME);
 }
 
 // =========================

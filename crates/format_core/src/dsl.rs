@@ -1147,6 +1147,7 @@ pub struct Violation {
     pub suggestion: Option<String>,
     /// 0.0~1.0，低置信度问题应降级为 info/manual_review。
     pub confidence: f32,
+    #[serde(default)]
     pub requires_manual_review: bool,
 }
 
@@ -1188,6 +1189,10 @@ pub struct AuditReport {
     pub total_warnings: usize,
     pub total_infos: usize,
     pub files: Vec<FileAuditSummary>,
+    /// 标注副本所在目录（论文文件夹下的「格式检查输出」）。
+    /// 未开启生成或全部文件定位失败时为 None；旧数据缺此字段时按 None 反序列化。
+    #[serde(default)]
+    pub output_dir: Option<PathBuf>,
 }
 
 // =========================
