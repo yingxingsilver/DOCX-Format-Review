@@ -6,7 +6,7 @@
 //!   本层只维护事件回调写入的轻量状态，绝不阻塞 UI；
 //! - 事件监听在模块初始化时注册一次，action 内部按 job_id 过滤过期事件。
 
-import { get, readable, writable, type Readable } from "svelte/store";
+import { derived, get, readable, writable, type Readable } from "svelte/store";
 import * as api from "./api";
 import type {
   AuditReport,
@@ -34,6 +34,34 @@ export const selectedFile = writable<string | null>(null);
 export const exporting = writable<boolean>(false);
 /** 界面提示条（成功/错误各一次消费）。 */
 export const notice = writable<{ kind: "success" | "error"; text: string } | null>(null);
+
+// —— P8C 组合根（App.svelte）使用的补充状态，命名与旧 uiState 层对齐 ——
+/** 规则文件名（由 rulePath 派生，仅展示用）。 */
+export const ruleFileName = derived(rulePath, (p) =>
+  p ? (p.split(/[\\/]/).filter(Boolean).pop() ?? p) : null,
+);
+/** 已发现的 Word 文件数（选择文件夹后更新）。 */
+export const fileCount = derived(files, (fs) => fs.length);
+/** 最近一次错误提示（error 态界面展示；新一轮动作开始时清空）。 */
+export const errorMessage = writable<string | null>(null);
+/** done 状态的结果摘要（WorkspacePanel 数据源，由 summary 派生）。 */
+export const summaryCounts = derived(summary, (r) =>
+  r
+    ? {
+        total: r.total_files,
+        passed: r.passed_files,
+        needsRevision: r.failed_files,
+        readFailed: r.read_failed_files,
+      }
+    : null,
+);
+/** 当前处理阶段文案。真实后端只在任务结束时推送结果，中间过程仅有逐文件进度，
+ *  因此这里由进度推导一句人话（如「正在检查第 3 / 20 个文件」），不再本地伪造阶段。 */
+export const stageLabel = derived(progress, (p) =>
+  p.total > 0 && p.completed < p.total
+    ? `正在检查第 ${Math.min(p.completed + 1, p.total)} / ${p.total} 个文件`
+    : "",
+);
 
 /** 派生只读 store：当前选中文件的违规列表（O(1) 查找表构建一次/报告）。 */
 export const violationsByFile: Readable<Map<string, Violation[]>> = readable(
@@ -67,6 +95,7 @@ function pushLog(line: string): void {
 
 function setNotice(kind: "success" | "error", text: string): void {
   notice.set({ kind, text });
+  if (kind === "error") errorMessage.set(text);
 }
 
 /** 从 ApiResult 提取错误并展示；成功返回 true。 */
@@ -117,6 +146,7 @@ async function ensureEventSubscriptions(): Promise<void> {
       if (get(jobId) !== e.job_id) return;
       status.set("error");
       jobId.set(null);
+      errorMessage.set(e.user_message);
       setNotice("error", e.user_message);
     }),
   ]).then((unsubs) => {
@@ -201,6 +231,7 @@ export async function startAudit(): Promise<void> {
   currentFileName.set(null);
   selectedFile.set(null);
   notice.set(null);
+  errorMessage.set(null);
   const res = await api.startAudit({ input_dir: dir, rule_file: rule });
   if (!guard(res)) return;
   if (res.ok) {
