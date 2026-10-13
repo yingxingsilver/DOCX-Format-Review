@@ -70,62 +70,64 @@
   }
 </script>
 
-<section class="card bg-base-100 border border-base-200 shadow-sm">
-  <div class="card-body gap-3">
-    <h2 class="card-title text-lg font-semibold text-base-content">检查结果</h2>
+<section class="card border border-line bg-white">
+  <div class="card-body gap-4">
+    <div class="flex items-baseline justify-between gap-3 flex-wrap">
+      <h2 class="font-heading text-[17px] font-semibold text-ink leading-none">检查结果</h2>
+      <span class="text-sm text-subtle">{filtered.length} / {files.length} 篇</span>
+    </div>
 
     <!-- 搜索 + 筛选 -->
     <div class="flex flex-wrap items-center gap-2">
       <label class="input input-bordered flex items-center gap-2 w-64" for="file-search">
-        <span class="text-base-content/60 shrink-0">搜索</span>
+        <span class="sr-only">按文件名搜索</span>
         <input
           id="file-search"
           type="search"
           class="grow"
-          placeholder="按文件名查找…"
+          placeholder="按文件名查找"
           bind:value={keyword}
         />
       </label>
       <div class="join" role="group" aria-label="结果筛选">
         <button
           type="button"
-          class="join-item btn btn-sm {filter === 'all' ? 'btn-primary' : 'btn-outline'}"
+          class="join-item btn btn-sm {filter === 'all' ? 'btn-active-token' : 'btn-outline'}"
           aria-pressed={filter === "all"}
           onclick={() => (filter = "all")}
         >全部</button>
         <button
           type="button"
-          class="join-item btn btn-sm {filter === 'problem' ? 'btn-primary' : 'btn-outline'}"
+          class="join-item btn btn-sm {filter === 'problem' ? 'btn-active-token' : 'btn-outline'}"
           aria-pressed={filter === "problem"}
           onclick={() => (filter = "problem")}
-        >仅看有问题</button>
+        >有问题</button>
         <button
           type="button"
-          class="join-item btn btn-sm {filter === 'read_failed' ? 'btn-primary' : 'btn-outline'}"
+          class="join-item btn btn-sm {filter === 'read_failed' ? 'btn-active-token' : 'btn-outline'}"
           aria-pressed={filter === "read_failed"}
           onclick={() => (filter = "read_failed")}
-        >仅看读取失败</button>
+        >读取失败</button>
       </div>
-      <span class="text-sm text-base-content/60 ml-auto">共 {filtered.length} 条</span>
     </div>
 
     <!-- 表格 -->
-    <div class="overflow-x-auto max-h-[420px] overflow-y-auto rounded-lg border border-base-200">
-      <table class="table table-sm table-zebra">
-        <thead class="bg-base-200 text-base-content [&_th]:sticky [&_th]:top-0 [&_th]:z-10">
+    <div class="overflow-x-auto max-h-[420px] overflow-y-auto rounded-card border border-line">
+      <table class="table table-sm">
+        <thead class="bg-surface text-ink [&_th]:sticky [&_th]:top-0 [&_th]:z-10">
           <tr>
             <th>文件名</th>
             <th>状态</th>
-            <th class="text-right">错误数</th>
-            <th class="text-right">警告数</th>
+            <th class="text-right">错误</th>
+            <th class="text-right">警告</th>
             <th>首个问题页</th>
-            <th>操作</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
           {#if filtered.length === 0}
             <tr>
-              <td colspan="6" class="py-8 text-center text-base-content/60">
+              <td colspan="6" class="py-8 text-center text-subtle">
                 {keyword ? "没有匹配的文件，换个关键词试试。" : "暂无结果。"}
               </td>
             </tr>
@@ -133,7 +135,7 @@
             {#each filtered as f, i (rowKey(f, i))}
               {@const badge = statusBadge(f)}
               <tr
-                class="cursor-pointer hover:bg-base-200 {selected === f.file_path ? '!bg-base-200' : ''}"
+                data-selected={selected === f.file_path ? "true" : "false"}
                 onclick={() => onSelectFile(f.file_path)}
                 onkeydown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
@@ -145,12 +147,12 @@
                 aria-label={`查看 ${f.file_name} 的详情`}
               >
                 <td class="max-w-[240px]">
-                  <span class="block truncate" title={f.file_path}>{f.file_name}</span>
+                  <span class="block truncate text-ink-2" title={f.file_path}>{f.file_name}</span>
                 </td>
                 <td><span class={badge.cls}>{badge.text}</span></td>
-                <td class="text-right tabular-nums">{f.error_count > 0 ? f.error_count : "—"}</td>
-                <td class="text-right tabular-nums">{f.warning_count > 0 ? f.warning_count : "—"}</td>
-                <td>{firstProblemPage(f)}</td>
+                <td class="text-right tabular-nums text-ink-2">{f.error_count > 0 ? f.error_count : "—"}</td>
+                <td class="text-right tabular-nums text-ink-2">{f.warning_count > 0 ? f.warning_count : "—"}</td>
+                <td class="text-ink-2">{firstProblemPage(f)}</td>
                 <td>
                   <button
                     type="button"
@@ -167,7 +169,37 @@
         </tbody>
       </table>
     </div>
-
-    <p class="text-sm text-base-content/60">点击任意一行可在下方查看该论文的具体问题。</p>
   </div>
 </section>
+
+<style>
+  .bg-white { background-color: var(--bg); }
+  .bg-surface { background-color: var(--surface); }
+  .text-ink { color: var(--ink); }
+  .text-ink-2 { color: var(--ink-2); }
+  .text-subtle { color: var(--muted); }
+  .border-line { border-color: var(--line); }
+  .rounded-card { border-radius: var(--radius-card); }
+  .font-heading { font-family: var(--font-heading); }
+  .sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  /* 筛选选中态：浅底 + 深色文字（强调色留给主 CTA） */
+  .btn-active-token {
+    background: var(--surface);
+    border-color: var(--line);
+    color: var(--ink);
+  }
+  tr[data-selected="true"] td {
+    background: var(--surface);
+  }
+  tbody tr {
+    cursor: pointer;
+  }
+</style>

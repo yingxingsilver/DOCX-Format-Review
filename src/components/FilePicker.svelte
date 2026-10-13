@@ -5,6 +5,7 @@
 -->
 <script lang="ts">
   import type { AuditRunStatus } from "../lib/types";
+  import { ICONS } from "../lib/icons";
 
   interface Props {
     /** 当前已选文件夹路径；null 表示尚未选择。 */
@@ -44,22 +45,22 @@
   }
 </script>
 
-<section class="card bg-base-100 border border-base-200 shadow-sm" aria-label="论文文件夹">
-  <div class="card-body gap-3">
+<section class="card border border-line bg-white" aria-label="论文文件夹">
+  <div class="card-body gap-4">
     <div class="flex items-center justify-between gap-2">
-      <h2 class="text-lg font-semibold text-base-content">论文文件夹</h2>
+      <h2 class="font-heading text-[17px] font-semibold text-ink leading-none">论文文件夹</h2>
       {#if fileCount !== null && fileCount > 0}
-        <span class="badge badge-info badge-sm">已发现 {fileCount} 个 Word 文件</span>
+        <span class="text-sm text-subtle">{fileCount} 个 Word 文件</span>
       {/if}
     </div>
 
     <label class="form-control w-full">
-      <span class="label-text text-sm text-base-content/60 mb-1">当前选择的文件夹</span>
+      <span class="text-sm text-subtle mb-1.5 block">当前选择的文件夹</span>
       <input
         type="text"
         readonly
         class="input input-bordered w-full truncate"
-        placeholder={inputDir ? "" : "尚未选择文件夹"}
+        placeholder={inputDir ? "" : "尚未选择"}
         value={displayName ?? ""}
         title={inputDir ?? "尚未选择文件夹"}
         aria-label="当前选择的论文文件夹路径"
@@ -76,6 +77,7 @@
         <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
         审核进行中
       {:else}
+        <span class="icon" style="--icon-size:16px" aria-hidden="true">{@html ICONS.folder}</span>
         选择论文文件夹
       {/if}
     </button>
@@ -85,11 +87,11 @@
       role="button"
       tabindex={disabled ? -1 : 0}
       aria-label="将论文文件夹拖拽到此处"
-      class={"rounded-lg border-2 border-dashed px-3 py-4 text-center text-sm transition-colors " +
+      class={"rounded-card border border-dashed px-4 py-5 text-center text-sm transition-colors " +
         (disabled
-          ? "border-base-300 text-base-content/40 cursor-not-allowed"
-          : "border-base-300 text-base-content/60 hover:border-primary cursor-pointer " +
-            (dragging ? "border-primary bg-base-200" : ""))}
+          ? "border-line text-subtle cursor-not-allowed"
+          : "border-line text-subtle hover:border-accent hover:text-ink cursor-pointer " +
+            (dragging ? "border-accent bg-surface text-ink" : ""))}
       ondragover={(e: DragEvent) => { e.preventDefault(); if (!disabled) dragging = true; }}
       ondragleave={() => { dragging = false; }}
       ondrop={handleDrop}
@@ -100,9 +102,41 @@
         }
       }}
     >
-      或将文件夹拖拽到此处
+      <span class="icon mb-1" style="--icon-size:18px" aria-hidden="true">{@html ICONS.upload}</span>
+      <div>或将文件夹拖拽到此处</div>
     </div>
 
-    <p class="text-sm text-base-content/60">请选择包含 .docx 论文的文件夹。</p>
+    <p class="text-sm text-subtle">仅支持 .docx；.doc 请先用 Word 另存为 .docx。</p>
   </div>
 </section>
+
+<style>
+  .bg-white {
+    background-color: var(--bg);
+  }
+  .bg-surface {
+    background-color: var(--surface);
+  }
+  .text-ink {
+    color: var(--ink);
+  }
+  .text-subtle {
+    color: var(--muted);
+  }
+  .border-line {
+    border-color: var(--line);
+  }
+  .border-accent,
+  .hover\:border-accent:hover {
+    border-color: var(--accent);
+  }
+  .hover\:text-ink:hover {
+    color: var(--ink);
+  }
+  .rounded-card {
+    border-radius: var(--radius-card);
+  }
+  .font-heading {
+    font-family: var(--font-heading);
+  }
+</style>

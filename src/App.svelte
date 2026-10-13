@@ -1,5 +1,5 @@
 <!--
-  App.svelte —— P8B/P8C 主布局组合根。
+  App.svelte —— P8B/P8C 主布局组合根（极简留白风格）。
   Svelte 5 runes 风格（项目 svelte ^5.57）。
 
   职责：
@@ -67,21 +67,19 @@
   }
 </script>
 
-<div data-theme="light" class="min-h-screen bg-base-200 text-base-content min-w-[1024px] lg:min-w-0">
-  <!-- 顶部 Header -->
-  <header class="bg-base-100 border-b border-base-200">
-    <div class="mx-auto max-w-screen-2xl px-4 py-3 lg:px-6">
-      <h1 class="text-xl font-bold text-base-content leading-tight">论文格式批量审核系统</h1>
-      <p class="text-sm text-base-content/60 pt-0.5">
-        离线检查 DOCX 字号、字体、行距、标题、标点等格式问题
-      </p>
+<div data-theme="light" class="min-h-screen bg-white text-ink min-w-[1024px] lg:min-w-0">
+  <!-- 顶部 Header：细线分隔，无阴影 -->
+  <header class="border-b border-line bg-white">
+    <div class="mx-auto max-w-screen-xl px-6 py-5 lg:px-10 flex items-baseline justify-between gap-4">
+      <h1 class="font-heading text-[22px] font-semibold leading-none text-ink">论文格式批量审核</h1>
+      <p class="hidden sm:block text-sm text-subtle">离线检查 DOCX 的字号、字体、行距、标题与标点</p>
     </div>
   </header>
 
-  <!-- 主体两栏：≥1024px 左右分栏，更窄时上下堆叠 -->
-  <main class="mx-auto max-w-screen-2xl p-4 lg:p-6 grid gap-4 lg:gap-6 grid-cols-1 lg:grid-cols-[380px_minmax(0,1fr)]">
+  <!-- 主体两栏：≥1024px 左右分栏，更窄时上下堆叠；留白优先 -->
+  <main class="mx-auto max-w-screen-xl px-6 py-8 lg:px-10 lg:py-10 grid gap-6 lg:gap-10 grid-cols-1 lg:grid-cols-[360px_minmax(0,1fr)]">
     <!-- 左栏：任务配置区 -->
-    <div class="flex flex-col gap-4 lg:gap-6">
+    <div class="flex flex-col gap-5 lg:gap-6">
       <FilePicker
         inputDir={$inputDir}
         status={$status}
@@ -114,7 +112,7 @@
     </div>
 
     <!-- 右栏：状态与结果工作区 -->
-    <div class="flex flex-col gap-4 lg:gap-6 min-w-0">
+    <div class="flex flex-col gap-5 lg:gap-6 min-w-0">
       {#if $status === "running"}
         <!-- P8C：进度面板（取代 P8B 的 running 占位） -->
         <ProgressPanel
@@ -162,3 +160,21 @@
     </div>
   </main>
 </div>
+
+<style>
+  .bg-white {
+    background-color: var(--bg);
+  }
+  .text-ink {
+    color: var(--ink);
+  }
+  .text-subtle {
+    color: var(--muted);
+  }
+  .border-line {
+    border-color: var(--line);
+  }
+  .font-heading {
+    font-family: var(--font-heading);
+  }
+</style>

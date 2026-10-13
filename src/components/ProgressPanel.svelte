@@ -32,10 +32,10 @@
   const remaining = $derived(Math.max(progress.total - progress.completed, 0));
 </script>
 
-<section class="card bg-base-100 border border-base-200 shadow-sm" aria-live="polite">
-  <div class="card-body gap-4">
-    <div class="flex items-center justify-between">
-      <h2 class="card-title text-lg font-semibold text-base-content">
+<section class="card border border-line bg-white" aria-live="polite">
+  <div class="card-body gap-5">
+    <div class="flex items-baseline justify-between gap-3">
+      <h2 class="font-heading text-[17px] font-semibold text-ink leading-none">
         {#if finished}
           审核完成
         {:else if cancelled}
@@ -44,20 +44,19 @@
           正在审核
         {/if}
       </h2>
-      <span class="badge {finished ? 'badge-success' : cancelled ? 'badge-warning' : 'badge-info'} badge-outline">
-        {finished ? "已完成" : cancelled ? "已取消" : `${percent}%`}
+      <span class="text-sm text-subtle tabular-nums">
+        {finished ? "已完成" : cancelled ? "已取消" : progress.total > 0 ? `${percent}%` : ""}
       </span>
     </div>
 
     <!-- 百分比进度条 -->
-    <div class="form-control">
-      <label class="label" for="audit-progress-bar">
-        <span class="label-text">
+    <div>
+      <div class="flex items-baseline justify-between mb-2">
+        <span class="text-sm text-subtle">
           已处理 {progress.total > 0 ? progress.completed : "—"} /
           {progress.total > 0 ? progress.total : "—"} 个文件
         </span>
-        <span class="label-text">{progress.total > 0 ? `${percent}%` : ""}</span>
-      </label>
+      </div>
       <progress
         id="audit-progress-bar"
         class="progress w-full {finished ? 'progress-success' : cancelled ? 'progress-warning' : 'progress-primary'}"
@@ -66,34 +65,34 @@
       ></progress>
     </div>
 
-    <dl class="grid grid-cols-3 gap-3 text-sm">
+    <dl class="grid grid-cols-3 gap-x-6 text-sm">
       <div>
-        <dt class="text-base-content/60">总文件数</dt>
-        <dd class="pt-1 font-medium">
+        <dt class="text-subtle">总文件数</dt>
+        <dd class="pt-1 text-ink font-medium tabular-nums">
           {#if progress.total > 0}{progress.total}{:else}<span class="skeleton block h-4 w-8"></span>{/if}
         </dd>
       </div>
       <div>
-        <dt class="text-base-content/60">已处理</dt>
-        <dd class="pt-1 font-medium">
+        <dt class="text-subtle">已处理</dt>
+        <dd class="pt-1 text-ink font-medium tabular-nums">
           {#if progress.total > 0}{progress.completed}{:else}<span class="skeleton block h-4 w-8"></span>{/if}
         </dd>
       </div>
       <div>
-        <dt class="text-base-content/60">剩余</dt>
-        <dd class="pt-1 font-medium">
+        <dt class="text-subtle">剩余</dt>
+        <dd class="pt-1 text-ink font-medium tabular-nums">
           {#if progress.total > 0}{remaining}{:else}<span class="skeleton block h-4 w-8"></span>{/if}
         </dd>
       </div>
     </dl>
 
     <!-- 当前文件名 -->
-    <div class="text-sm">
-      <span class="text-base-content/60">当前文件：</span>
+    <div class="text-sm flex gap-2 min-w-0">
+      <span class="text-subtle shrink-0">当前文件</span>
       {#if finished || cancelled}
-        <span class="font-medium">—</span>
+        <span class="text-ink-2">—</span>
       {:else if currentFileName}
-        <span class="inline-block max-w-[70%] truncate align-bottom font-medium" title={currentFileName}>
+        <span class="inline-block max-w-[70%] truncate align-bottom text-ink-2" title={currentFileName}>
           {currentFileName}
         </span>
       {:else}
@@ -101,37 +100,33 @@
       {/if}
     </div>
 
-    <!-- 阶段提示 -->
+    <!-- 阶段提示：一行文字，不用 steps 装饰 -->
     {#if !finished && !cancelled}
-      <ul class="steps steps-vertical w-full text-sm [&>li]:px-2">
-        <li class="step step-primary" data-content="✓">正在解析样式</li>
-        <li class="step {stage === '正在检查字号' || stage === '正在生成报告' ? 'step-primary' : ''}"
-            data-content={stage === '正在检查字号' ? '●' : stage === '正在生成报告' ? '✓' : ''}>
-          正在检查字号
-        </li>
-        <li class="step {stage === '正在生成报告' ? 'step-primary' : ''}"
-            data-content={stage === '正在生成报告' ? '●' : ''}>
-          正在生成报告
-        </li>
-      </ul>
       {#if stage}
-        <p class="text-sm text-base-content/70">{stage}，请稍候…</p>
+        <p class="text-sm text-subtle">{stage}…</p>
+      {:else}
+        <p class="text-sm text-subtle">准备中…</p>
       {/if}
     {:else if finished}
-      <div role="status" class="alert alert-success text-sm py-2">
-        <span>审核完成，结果已在下方展示。</span>
-      </div>
+      <p class="text-sm text-subtle">结果已在下方列出。</p>
     {:else if cancelled}
-      <div role="status" class="alert alert-warning text-sm py-2">
-        <span>审核已停止，已完成部分的结果仍然可查看。</span>
-      </div>
+      <p class="text-sm text-subtle">已完成部分的结果仍然可以查看。</p>
     {/if}
 
-    <!-- 取消按钮：仅运行中显示 -->
+    <!-- 取消按钮：仅运行中显示，次要样式（主强调色留给开始 CTA） -->
     {#if !finished && !cancelled}
-      <button type="button" class="btn btn-error w-full" onclick={onCancel}>
+      <button type="button" class="btn btn-ghost self-start px-4" onclick={onCancel}>
         取消审核
       </button>
     {/if}
   </div>
 </section>
+
+<style>
+  .bg-white { background-color: var(--bg); }
+  .text-ink { color: var(--ink); }
+  .text-ink-2 { color: var(--ink-2); }
+  .text-subtle { color: var(--muted); }
+  .border-line { border-color: var(--line); }
+  .font-heading { font-family: var(--font-heading); }
+</style>

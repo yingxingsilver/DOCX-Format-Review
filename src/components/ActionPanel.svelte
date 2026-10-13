@@ -4,6 +4,7 @@
 -->
 <script lang="ts">
   import type { AuditRunStatus } from "../lib/types";
+  import { ICONS } from "../lib/icons";
 
   interface Props {
     status: AuditRunStatus;
@@ -55,14 +56,14 @@
   };
 </script>
 
-<section class="card bg-base-100 border border-base-200 shadow-sm" aria-label="审核选项与操作">
-  <div class="card-body gap-3">
-    <h2 class="text-lg font-semibold text-base-content">审核选项与操作</h2>
+<section class="card border border-line bg-white" aria-label="审核选项与操作">
+  <div class="card-body gap-4">
+    <h2 class="font-heading text-[17px] font-semibold text-ink leading-none">审核选项</h2>
 
     <!-- 选项区 -->
-    <div class="flex items-center justify-between gap-2">
-      <label class="label cursor-pointer justify-end gap-3 w-full" for="opt-subdirs">
-        <span class="label-text">包含子文件夹</span>
+    <div class="flex flex-col gap-3">
+      <label class="flex items-center justify-between gap-3 cursor-pointer" for="opt-subdirs">
+        <span class="text-[15px] text-ink-2">包含子文件夹</span>
         <input
           id="opt-subdirs"
           type="checkbox"
@@ -73,44 +74,43 @@
             onIncludeSubdirsChange((e.currentTarget as HTMLInputElement).checked)}
         />
       </label>
+
+      <div>
+        <label class="flex items-center justify-between gap-3 cursor-pointer" for="opt-annotated">
+          <span class="text-[15px] text-ink-2">生成标注版 DOCX</span>
+          <input
+            id="opt-annotated"
+            type="checkbox"
+            class="toggle toggle-primary"
+            checked={generateAnnotatedDocx}
+            disabled={optionsDisabled}
+            onchange={(e: Event) =>
+              onGenerateAnnotatedChange((e.currentTarget as HTMLInputElement).checked)}
+          />
+        </label>
+        <p class="text-sm text-subtle pt-1">在原文中标出问题位置，处理速度稍慢。</p>
+      </div>
     </div>
 
-    <div>
-      <label class="label cursor-pointer justify-start gap-3 p-0" for="opt-annotated">
-        <input
-          id="opt-annotated"
-          type="checkbox"
-          class="toggle toggle-primary"
-          checked={generateAnnotatedDocx}
-          disabled={optionsDisabled}
-          onchange={(e: Event) =>
-            onGenerateAnnotatedChange((e.currentTarget as HTMLInputElement).checked)}
-        />
-        <span class="label-text">生成标注版 DOCX</span>
-      </label>
-      <p class="text-sm text-base-content/60 pl-1 pt-1">
-        会在原文件基础上标记问题位置，处理速度可能稍慢。
-      </p>
-    </div>
-
-    <div class="divider my-2"></div>
+    <div class="divider my-0"></div>
 
     <!-- 操作按钮区（Tab 顺序：开始 → 取消 → 清空） -->
     {#if !running}
       <button
         type="button"
-        class="btn btn-primary w-full"
+        class="btn btn-primary w-full h-12 text-base"
         disabled={!canStart}
         title={canStart ? "开始批量审核" : "请先在上方选择论文文件夹"}
         onclick={onStart}
       >
+        <span class="icon" style="--icon-size:16px" aria-hidden="true">{@html ICONS.play}</span>
         开始批量审核
       </button>
       {#if !canStart}
-        <p class="text-sm text-base-content/60 -mt-1">请先选择论文文件夹后开始。</p>
+        <p class="text-sm text-subtle -mt-2">先选择论文文件夹，再开始审核。</p>
       {/if}
     {:else}
-      <button type="button" class="btn btn-primary w-full" disabled>
+      <button type="button" class="btn btn-primary w-full h-12 text-base" disabled>
         <span class="loading loading-spinner loading-sm" aria-hidden="true"></span>
         审核进行中
       </button>
@@ -133,7 +133,7 @@
       <div class="grid grid-cols-2 gap-2">
         <button
           type="button"
-          class="btn btn-secondary btn-sm w-full"
+          class="btn btn-outline btn-sm w-full"
           disabled={!exportsReady}
           onclick={onExportHtml}
         >
@@ -145,11 +145,11 @@
           disabled={!exportsReady}
           onclick={onExportCsv}
         >
-          导出 Excel/CSV 清单
+          导出 CSV 清单
         </button>
       </div>
       {#if !exportsReady}
-        <p class="text-sm text-base-content/60">报告导出将在结果页开放。</p>
+        <p class="text-sm text-subtle -mt-2">导出入口将在结果页开放。</p>
       {/if}
     {/if}
 
@@ -160,8 +160,29 @@
           <span>{errorMessage}</span>
         </div>
       {:else}
-        <p class="text-sm text-base-content/60">{statusText[status]}</p>
+        <p class="text-sm text-subtle">{statusText[status]}</p>
       {/if}
     </div>
   </div>
 </section>
+
+<style>
+  .bg-white {
+    background-color: var(--bg);
+  }
+  .text-ink {
+    color: var(--ink);
+  }
+  .text-ink-2 {
+    color: var(--ink-2);
+  }
+  .text-subtle {
+    color: var(--muted);
+  }
+  .border-line {
+    border-color: var(--line);
+  }
+  .font-heading {
+    font-family: var(--font-heading);
+  }
+</style>

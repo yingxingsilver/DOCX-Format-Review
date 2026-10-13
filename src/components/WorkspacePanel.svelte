@@ -41,63 +41,74 @@
 
 <div class="min-h-[420px]" aria-live="polite">
   {#if status === "idle"}
-    <!-- 欢迎 / 空状态 -->
-    <section class="card bg-base-100 border border-base-200 shadow-sm">
-      <div class="card-body gap-4">
-        <h2 class="card-title text-lg font-semibold text-base-content">
-          欢迎使用论文格式批量审核系统
-        </h2>
-        <div role="status" class="alert alert-info text-sm">
-          <div>
-            <p>请在左侧选择论文文件夹。</p>
-            <p class="pt-1 text-base-content/70">
-              系统会离线检查 DOCX 文件的字号、字体、行距、标题、标点等格式问题。
-            </p>
-          </div>
+    <!-- 欢迎 / 空状态：单列叙述，留白为主 -->
+    <section class="card border border-line bg-white">
+      <div class="card-body gap-6 py-10 px-8">
+        <div class="max-w-[52ch]">
+          <h2 class="font-heading text-[26px] font-semibold text-ink leading-tight">
+            开始一次格式检查
+          </h2>
+          <p class="text-[17px] text-ink-2 pt-3" style="line-height:1.65">
+            在左侧选择存放论文的文件夹，点击「开始批量审核」。系统会逐个读取 DOCX，
+            对照规则检查字号、字体、行距、标题层级和标点，并给出每个问题的修改建议。
+          </p>
+          <p class="text-sm text-subtle pt-3">
+            全程在本机完成，文件不会上传到任何外部服务。
+          </p>
         </div>
-        <div class="flex flex-wrap gap-2">
-          <span class="badge badge-info badge-outline gap-1 py-3 px-3">批量处理</span>
-          <span class="badge badge-success badge-outline gap-1 py-3 px-3">离线运行</span>
-          <span class="badge badge-warning badge-outline gap-1 py-3 px-3">中文报告</span>
-        </div>
+
+        <ol class="flex flex-col gap-3 text-[15px] text-ink-2 max-w-[52ch]">
+          <li class="flex gap-3">
+            <span class="text-subtle tabular-nums shrink-0">1</span>
+            <span>选择论文文件夹（可包含子文件夹）</span>
+          </li>
+          <li class="flex gap-3">
+            <span class="text-subtle tabular-nums shrink-0">2</span>
+            <span>如有学校专用要求，选择对应的规则文件</span>
+          </li>
+          <li class="flex gap-3">
+            <span class="text-subtle tabular-nums shrink-0">3</span>
+            <span>查看结果列表，点开任意一篇看具体问题</span>
+          </li>
+        </ol>
       </div>
     </section>
 
   {:else if status === "running"}
-    <!-- 审核进行中占位 -->
-    <section class="card bg-base-100 border border-base-200 shadow-sm">
-      <div class="card-body gap-4">
-        <h2 class="card-title text-lg font-semibold text-base-content">正在审核</h2>
+    <!-- 审核进行中（ProgressPanel 未接入时的兜底展示） -->
+    <section class="card border border-line bg-white">
+      <div class="card-body gap-5">
+        <h2 class="font-heading text-[17px] font-semibold text-ink leading-none">正在审核</h2>
 
-        <div class="form-control">
-          <label class="label" for="audit-progress">
-            <span class="label-text">
+        <div>
+          <div class="flex items-baseline justify-between mb-2">
+            <span class="text-sm text-subtle">
               已处理 {progress?.completed ?? "—"} / {progress?.total ?? "—"} 个文件
             </span>
-            <span class="label-text">{percent}%</span>
-          </label>
+            <span class="text-sm text-ink tabular-nums">{percent}%</span>
+          </div>
           <progress
-            id="audit-progress"
             class="progress progress-primary w-full"
             value={percent}
             max="100"
+            aria-label="审核进度"
           ></progress>
         </div>
 
-        <dl class="grid grid-cols-2 gap-3 text-sm">
-          <div>
-            <dt class="text-base-content/60">当前文件</dt>
-            <dd class="pt-1">
+        <dl class="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+          <div class="flex gap-2">
+            <dt class="text-subtle shrink-0">当前文件</dt>
+            <dd class="min-w-0">
               {#if currentFileName}
-                <span class="truncate block" title={currentFileName}>{currentFileName}</span>
+                <span class="truncate block text-ink-2" title={currentFileName}>{currentFileName}</span>
               {:else}
                 <span class="skeleton block h-4 w-1/3"></span>
               {/if}
             </dd>
           </div>
-          <div>
-            <dt class="text-base-content/60">剩余数量</dt>
-            <dd class="pt-1">
+          <div class="flex gap-2">
+            <dt class="text-subtle shrink-0">剩余</dt>
+            <dd class="text-ink-2">
               {#if progress && progress.total > 0}
                 {Math.max(progress.total - progress.completed, 0)} 个文件
               {:else}
@@ -106,93 +117,92 @@
             </dd>
           </div>
         </dl>
-
-        <ul class="space-y-2 text-sm text-base-content/70">
-          <li>正在解析文档结构</li>
-          <li>正在检查字体与字号</li>
-          <li>正在生成审核结果</li>
-        </ul>
-
-        <div class="skeleton h-10 w-full rounded-lg"></div>
       </div>
     </section>
 
   {:else if status === "done"}
-    <!-- 结果摘要占位 -->
-    <section class="card bg-base-100 border border-base-200 shadow-sm">
-      <div class="card-body gap-4">
-        <h2 class="card-title text-lg font-semibold text-base-content">审核完成</h2>
-
-        <div class="stats stats-vertical sm:stats-horizontal shadow border border-base-200 w-full">
-          <div class="stat">
-            <div class="stat-title">总文件数</div>
-            <div class="stat-value text-2xl">
-              {#if summary}{summary.total}{:else}<span class="skeleton h-6 w-12"></span>{/if}
-            </div>
-          </div>
-          <div class="stat">
-            <div class="stat-title">通过</div>
-            <div class="stat-value text-2xl text-success">
-              {#if summary}{summary.passed}{:else}<span class="skeleton h-6 w-12"></span>{/if}
-            </div>
-          </div>
-          <div class="stat">
-            <div class="stat-title">需修改</div>
-            <div class="stat-value text-2xl text-warning">
-              {#if summary}{summary.needsRevision}{:else}<span class="skeleton h-6 w-12"></span>{/if}
-            </div>
-          </div>
-          <div class="stat">
-            <div class="stat-title">读取失败</div>
-            <div class="stat-value text-2xl text-error">
-              {#if summary}{summary.readFailed}{:else}<span class="skeleton h-6 w-12"></span>{/if}
-            </div>
-          </div>
+    <!-- 结果摘要：四个数字一屏读完，弱装饰 -->
+    <section class="card border border-line bg-white">
+      <div class="card-body gap-6">
+        <div class="flex items-baseline justify-between gap-4 flex-wrap">
+          <h2 class="font-heading text-[20px] font-semibold text-ink leading-none">本次检查结果</h2>
+          <span class="text-sm text-subtle">
+            {#if summary}{summary.total} 篇论文已完成检查{:else}正在汇总…{/if}
+          </span>
         </div>
 
-        <div class="card bg-base-200 border border-base-200">
-          <div class="card-body py-4">
-            <p class="text-sm text-base-content/60">详细结果将在下一阶段接入。</p>
-            <div class="skeleton h-10 w-full mt-2 rounded-lg"></div>
+        <dl class="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-6">
+          <div>
+            <dt class="text-sm text-subtle">总文件数</dt>
+            <dd class="font-heading text-[28px] leading-none text-ink pt-2 tabular-nums">
+              {#if summary}{summary.total}{:else}<span class="skeleton inline-block h-7 w-12 align-middle"></span>{/if}
+            </dd>
           </div>
-        </div>
+          <div>
+            <dt class="text-sm text-subtle">通过</dt>
+            <dd class="font-heading text-[28px] leading-none text-accent pt-2 tabular-nums">
+              {#if summary}{summary.passed}{:else}<span class="skeleton inline-block h-7 w-12 align-middle"></span>{/if}
+            </dd>
+          </div>
+          <div>
+            <dt class="text-sm text-subtle">需修改</dt>
+            <dd class="font-heading text-[28px] leading-none text-ink pt-2 tabular-nums">
+              {#if summary}{summary.needsRevision}{:else}<span class="skeleton inline-block h-7 w-12 align-middle"></span>{/if}
+            </dd>
+          </div>
+          <div>
+            <dt class="text-sm text-subtle">读取失败</dt>
+            <dd class="font-heading text-[28px] leading-none text-danger pt-2 tabular-nums">
+              {#if summary}{summary.readFailed}{:else}<span class="skeleton inline-block h-7 w-12 align-middle"></span>{/if}
+            </dd>
+          </div>
+        </dl>
 
-        <button type="button" class="btn btn-primary w-full" onclick={onRestart}>
-          重新审核
-        </button>
+        <p class="text-sm text-subtle">在下方列表中点击文件名，查看该论文的具体问题与修改建议。</p>
       </div>
     </section>
 
   {:else if status === "error"}
-    <!-- 错误提示 -->
-    <section class="card bg-base-100 border border-base-200 shadow-sm">
-      <div class="card-body gap-4">
-        <div role="alert" class="alert alert-error">
-          <div>
-            <h2 class="font-semibold">审核失败</h2>
-            <p class="text-sm pt-1">{errorMessage ?? "检查未能完成，请重试。"}</p>
-          </div>
+    <!-- 错误提示：只说清原因和下一步 -->
+    <section class="card border border-line bg-white">
+      <div class="card-body gap-5">
+        <h2 class="font-heading text-[20px] font-semibold text-ink leading-none">检查未能完成</h2>
+        <p class="text-[15px] text-ink-2 max-w-[60ch]" style="line-height:1.65">
+          {errorMessage ?? "审核过程中出现异常，请确认文件夹可访问后重试。"}
+        </p>
+        <div>
+          <button type="button" class="btn btn-primary" onclick={onRestart}>
+            重新开始
+          </button>
         </div>
-        <button type="button" class="btn btn-primary w-full" onclick={onRestart}>
-          重新开始
-        </button>
       </div>
     </section>
 
   {:else if status === "cancelled"}
-    <!-- 已取消提示 -->
-    <section class="card bg-base-100 border border-base-200 shadow-sm">
-      <div class="card-body gap-4">
-        <div role="alert" class="alert alert-warning">
-          <div>
-            <h2 class="font-semibold">审核已取消</h2>
-            <p class="text-sm pt-1">当前任务已停止，你可以重新选择文件夹并开始审核。</p>
-          </div>
+    <!-- 已取消：保留部分结果入口 -->
+    <section class="card border border-line bg-white">
+      <div class="card-body gap-5">
+        <h2 class="font-heading text-[20px] font-semibold text-ink leading-none">审核已停止</h2>
+        <p class="text-[15px] text-ink-2 max-w-[60ch]" style="line-height:1.65">
+          任务已中断。已完成部分的检查结果仍然可以查看；如需继续，重新发起即可。
+        </p>
+        <div>
+          <button type="button" class="btn btn-outline" onclick={onRestart}>
+            清空并重新开始
+          </button>
         </div>
-        <button type="button" class="btn btn-primary w-full" onclick={onRestart}>
-          重新审核
-        </button>
       </div>
     </section>
   {/if}
 </div>
+
+<style>
+  .bg-white { background-color: var(--bg); }
+  .text-ink { color: var(--ink); }
+  .text-ink-2 { color: var(--ink-2); }
+  .text-subtle { color: var(--muted); }
+  .text-accent { color: var(--accent); }
+  .text-danger { color: #b42318; }
+  .border-line { border-color: var(--line); }
+  .font-heading { font-family: var(--font-heading); }
+</style>

@@ -5,14 +5,11 @@
 -->
 <script lang="ts">
   /** 与状态层 UiLogLine / 后端 LogEvent 兼容的展示行。 */
-  interface LogLine {
-    at: number;
-    level: "info" | "warn" | "error";
-    message: string;
-  }
+  import type { UiLogLine } from "../lib/uiState";
+  import { ICONS } from "../lib/icons";
 
   interface Props {
-    logs: LogLine[];
+    logs: UiLogLine[];
   }
 
   let { logs }: Props = $props();
@@ -24,43 +21,41 @@
     const p = (n: number, w = 2) => String(n).padStart(w, "0");
     return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
   }
-
-  function levelBadge(level: LogLine["level"]): string {
-    switch (level) {
-      case "error":
-        return "badge badge-error badge-sm shrink-0";
-      case "warn":
-        return "badge badge-warning badge-sm shrink-0";
-      default:
-        return "badge badge-ghost badge-sm shrink-0";
-    }
-  }
-
-  function levelText(level: LogLine["level"]): string {
-    return level === "error" ? "异常" : level === "warn" ? "提醒" : "记录";
-  }
 </script>
 
 {#if logs.length > 0}
-  <details class="bg-base-100 border border-base-200 rounded-xl shadow-sm">
-    <summary class="cursor-pointer select-none px-4 py-3 text-sm font-medium text-base-content/70 hover:text-base-content">
-      运行详情（可选）
-      <span class="badge badge-ghost badge-sm ml-2">{logs.length} 条</span>
-      {#if errorCount > 0}
-        <span class="badge badge-error badge-sm ml-1">{errorCount} 条异常</span>
-      {/if}
+  <details class="bg-white border border-line rounded-card">
+    <summary class="cursor-pointer select-none px-5 py-3.5 text-sm text-subtle hover:text-ink flex items-center gap-2">
+      <span class="icon" style="--icon-size:14px" aria-hidden="true">{@html ICONS.chevronDown}</span>
+      运行详情
+      <span class="tabular-nums">（{logs.length} 条{errorCount > 0 ? `，${errorCount} 条异常` : ""}）</span>
     </summary>
-    <div class="border-t border-base-200 px-4 py-3 max-h-56 overflow-y-auto">
+    <div class="border-t border-line px-5 py-4 max-h-56 overflow-y-auto">
       <ul class="flex flex-col gap-1.5">
         {#each logs as line, i (i)}
-          <li class="flex items-start gap-2 text-xs leading-relaxed">
-            <span class="tabular-nums text-base-content/50 shrink-0">{timeOf(line.at)}</span>
-            <span class={levelBadge(line.level)}>{levelText(line.level)}</span>
-            <span class="text-base-content/80 break-all">{line.message}</span>
+          <li class="flex items-start gap-3 text-xs leading-relaxed font-mono">
+            <span class="tabular-nums text-subtle shrink-0">{timeOf(line.at)}</span>
+            <span class={"shrink-0 " + (line.level === "error" ? "text-danger" : line.level === "warn" ? "text-warn" : "text-subtle")}>
+              {levelText(line.level)}
+            </span>
+            <span class="text-ink-2 break-all">{line.message}</span>
           </li>
         {/each}
       </ul>
-      <p class="pt-3 text-xs text-base-content/50">这些记录供熟悉电脑的老师排查使用，平时无需关注。</p>
+      <p class="pt-3 text-xs text-subtle">这些记录供熟悉电脑的老师排查使用，平时无需关注。</p>
     </div>
   </details>
 {/if}
+
+<style>
+  .bg-white { background-color: var(--bg); }
+  .rounded-card { border-radius: var(--radius-card); }
+  .border-line { border-color: var(--line); }
+  .text-ink { color: var(--ink); }
+  .text-ink-2 { color: var(--ink-2); }
+  .text-subtle { color: var(--muted); }
+  .text-danger { color: #b42318; }
+  .text-warn { color: #b45309; }
+  details[open] summary .icon { transform: rotate(0deg); }
+  details:not([open]) summary .icon { transform: rotate(-90deg); }
+</style>
