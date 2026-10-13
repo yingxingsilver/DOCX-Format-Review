@@ -9,9 +9,8 @@
   - 从状态层读取全局状态，把动作以回调形式下发给子组件；
   - 不直接调用 Tauri invoke，不含 DOCX 审核业务逻辑。
 
-  状态来源说明：当前使用 src/lib/uiState.ts（可本地模拟的状态层），
-  其字段与动作命名和 src/lib/stores.ts（P8A 后端接线层）一一对应；
-  接入真实后端时把下方 import 换成 "./lib/stores" 并关闭 simulateLocally 即可。
+  状态来源：src/lib/stores.ts（P8A/P8C 真实后端接线层）——进度、日志、结果
+  全部来自 audit://* 事件；本地模拟层 uiState.ts 已移除。
 -->
 <script lang="ts">
   import FilePicker from "./components/FilePicker.svelte";
@@ -32,9 +31,9 @@
     errorMessage,
     progress,
     summaryCounts,
+    summary,
     currentFileName,
     stageLabel,
-    report,
     selectedFile,
     logs,
     chooseInputDir,
@@ -45,20 +44,21 @@
     clearResults,
     exportHtml,
     exportCsv,
+    openAnnotatedFolder,
     selectFile,
-  } from "./lib/uiState";
+  } from "./lib/stores";
 
-  /** 未选择文件夹时禁用「开始批量审核」。 */
+  /** 未选择文件夹时禁用「开始批量审核」（stores.startAudit 内还会校验规则文件）。 */
   const canStart = $derived($inputDir !== null);
   /** done/cancelled/error 或已有摘要时允许清空结果。 */
   const hasResults = $derived(
     $status === "done" || $status === "cancelled" || $status === "error" || $summaryCounts !== null,
   );
   /** P8C：结果表数据源（报告已就绪时）。 */
-  const resultFiles = $derived($report?.files ?? []);
+  const resultFiles = $derived($summary?.files ?? []);
   /** P8C：当前选中文件的完整结果（含 parse_error / 计数）。 */
   const selectedSummary = $derived(
-    $selectedFile ? ($report?.files.find((f) => f.file_path === $selectedFile) ?? null) : null,
+    $selectedFile ? ($summary?.files.find((f) => f.file_path === $selectedFile) ?? null) : null,
   );
 
   /** 拖拽回调占位：后续在此接 Tauri 窗口级 drag-drop 的真实路径。 */
@@ -100,7 +100,7 @@
         generateAnnotatedDocx={$generateAnnotatedDocx}
         hasResults={hasResults}
         errorMessage={$errorMessage}
-        exportsReady={false}
+        exportsReady={$summary !== null}
         onIncludeSubdirsChange={(v) => includeSubdirs.set(v)}
         onGenerateAnnotatedChange={(v) => generateAnnotatedDocx.set(v)}
         onStart={startAudit}
@@ -108,6 +108,7 @@
         onClear={clearResults}
         onExportHtml={exportHtml}
         onExportCsv={exportCsv}
+        onOpenAnnotatedFolder={openAnnotatedFolder}
       />
     </div>
 

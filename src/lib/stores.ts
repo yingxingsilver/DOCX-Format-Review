@@ -6,7 +6,7 @@
 //!   本层只维护事件回调写入的轻量状态，绝不阻塞 UI；
 //! - 事件监听在模块初始化时注册一次，action 内部按 job_id 过滤过期事件。
 
-import { get, readable, writable, type Readable } from "svelte/store";
+import { derived, get, readable, writable, type Readable } from "svelte/store";
 import * as api from "./api";
 import type {
   AuditReport,
@@ -22,6 +22,14 @@ import type {
 
 export const inputDir = writable<string | null>(null);
 export const rulePath = writable<string | null>(null);
+/** 恢复内置通用规则（不指定外部 .json 规则文件）。 */
+export function resetRule(): void {
+  if (get(status) === "running") return;
+  rulePath.set(null);
+}
+/** 审核选项：包含子文件夹 / 生成标注版 DOCX（UI 状态；后端 AuditOptions 就绪前暂不下发）。 */
+export const includeSubdirs = writable<boolean>(false);
+export const generateAnnotatedDocx = writable<boolean>(false);
 export const files = writable<FileMeta[]>([]);
 export const jobId = writable<string | null>(null);
 export const status = writable<AuditRunStatus>("idle");
@@ -34,6 +42,34 @@ export const selectedFile = writable<string | null>(null);
 export const exporting = writable<boolean>(false);
 /** 界面提示条（成功/错误各一次消费）。 */
 export const notice = writable<{ kind: "success" | "error"; text: string } | null>(null);
+
+// —— P8C 组合根（App.svelte）使用的补充状态，命名与旧 uiState 层对齐 ——
+/** 规则文件名（由 rulePath 派生，仅展示用）。 */
+export const ruleFileName = derived(rulePath, (p) =>
+  p ? (p.split(/[\\/]/).filter(Boolean).pop() ?? p) : null,
+);
+/** 已发现的 Word 文件数（选择文件夹后更新）。 */
+export const fileCount = derived(files, (fs) => fs.length);
+/** 最近一次错误提示（error 态界面展示；新一轮动作开始时清空）。 */
+export const errorMessage = writable<string | null>(null);
+/** done 状态的结果摘要（WorkspacePanel 数据源，由 summary 派生）。 */
+export const summaryCounts = derived(summary, (r) =>
+  r
+    ? {
+        total: r.total_files,
+        passed: r.passed_files,
+        needsRevision: r.failed_files,
+        readFailed: r.read_failed_files,
+      }
+    : null,
+);
+/** 当前处理阶段文案。真实后端只在任务结束时推送结果，中间过程仅有逐文件进度，
+ *  因此这里由进度推导一句人话（如「正在检查第 3 / 20 个文件」），不再本地伪造阶段。 */
+export const stageLabel = derived(progress, (p) =>
+  p.total > 0 && p.completed < p.total
+    ? `正在检查第 ${Math.min(p.completed + 1, p.total)} / ${p.total} 个文件`
+    : "",
+);
 
 /** 派生只读 store：当前选中文件的违规列表（O(1) 查找表构建一次/报告）。 */
 export const violationsByFile: Readable<Map<string, Violation[]>> = readable(
@@ -67,6 +103,7 @@ function pushLog(line: string): void {
 
 function setNotice(kind: "success" | "error", text: string): void {
   notice.set({ kind, text });
+  if (kind === "error") errorMessage.set(text);
 }
 
 /** 从 ApiResult 提取错误并展示；成功返回 true。 */
@@ -117,6 +154,7 @@ async function ensureEventSubscriptions(): Promise<void> {
       if (get(jobId) !== e.job_id) return;
       status.set("error");
       jobId.set(null);
+      errorMessage.set(e.user_message);
       setNotice("error", e.user_message);
     }),
   ]).then((unsubs) => {
@@ -139,6 +177,24 @@ async function ensureEventSubscriptions(): Promise<void> {
 export function disposeAuditEvents(): void {
   subscribing = null; // 使在途的 ensureEventSubscriptions 结果作废并允许重注册
   unlistenAll?.();
+}
+
+// =========================
+// 默认输出目录（报告与标注版 DOCX 统一放这里）
+// =========================
+
+/** 结果输出子目录名：位于所选论文文件夹之下。 */
+export const OUTPUT_DIR_NAME = "格式检查输出";
+
+/** 拼接路径（Tauri 各平台均接受 "/" 分隔符，Windows 亦可）。 */
+function joinPath(dir: string, name: string): string {
+  const sep = dir.endsWith("/") || dir.endsWith("\\") ? "" : "/";
+  return `${dir}${sep}${name}`;
+}
+
+/** 本次结果的默认输出目录（论文文件夹下的「格式检查输出」）。 */
+export function outputDirOf(report: AuditReport): string {
+  return joinPath(report.input_dir, OUTPUT_DIR_NAME);
 }
 
 // =========================
@@ -201,6 +257,7 @@ export async function startAudit(): Promise<void> {
   currentFileName.set(null);
   selectedFile.set(null);
   notice.set(null);
+  errorMessage.set(null);
   const res = await api.startAudit({ input_dir: dir, rule_file: rule });
   if (!guard(res)) return;
   if (res.ok) {
@@ -234,10 +291,8 @@ async function doExport(format: "html" | "csv"): Promise<void> {
     setNotice("error", "还没有可导出的检查结果，请先运行一次检查。");
     return;
   }
-  const dir = report.input_dir;
   const ext = format === "html" ? "论文格式检查报告.html" : "论文格式问题清单.csv";
-  const sep = dir.endsWith("/") || dir.endsWith("\\") ? "" : "/";
-  const outPath = `${dir}${sep}${ext}`;
+  const outPath = joinPath(outputDirOf(report), ext);
   exporting.set(true);
   try {
     const res = await api.exportReport(report, outPath, format);
@@ -246,6 +301,9 @@ async function doExport(format: "html" | "csv"): Promise<void> {
     exporting.set(false);
   }
 }
+// =========================
+// 结果打开与导出（产物默认写入论文文件夹下的「格式检查输出」目录）
+// =========================
 
 /** 用系统默认程序打开最近一次导出的 HTML 报告。 */
 export async function openReport(): Promise<void> {
@@ -254,15 +312,37 @@ export async function openReport(): Promise<void> {
     setNotice("error", "还没有生成过报告，请先运行检查并导出。");
     return;
   }
-  const dir = report.input_dir;
-  const sep = dir.endsWith("/") || dir.endsWith("\\") ? "" : "/";
-  const res = await api.openPathInShell(`${dir}${sep}论文格式检查报告.html`);
+  const res = await api.openPathInShell(joinPath(outputDirOf(report), "论文格式检查报告.html"));
+  guard(res);
+}
+
+/** 在系统文件管理器中打开输出文件夹（报告与标注版 DOCX 都在这里）。 */
+export async function openAnnotatedFolder(): Promise<void> {
+  const report = get(summary);
+  if (!report) {
+    setNotice("error", "还没有检查结果，请先运行一次检查。");
+    return;
+  }
+  const res = await api.openPathInShell(outputDirOf(report));
   guard(res);
 }
 
 /** 选中某文件查看违规详情。 */
 export function selectFile(path: string | null): void {
   selectedFile.set(path);
+}
+
+/** 清空本次结果回到 idle，但保留已选文件夹与规则（换一批文件重审时用）。 */
+export function clearResults(): void {
+  if (get(status) === "running") return; // 运行中不允许清空，避免与事件竞态
+  status.set("idle");
+  errorMessage.set(null);
+  notice.set(null);
+  progress.set({ completed: 0, total: 0 });
+  currentFileName.set(null);
+  summary.set(null);
+  selectedFile.set(null);
+  logs.set([]);
 }
 
 /** 一键回到初始状态（换文件夹重审时用）。 */

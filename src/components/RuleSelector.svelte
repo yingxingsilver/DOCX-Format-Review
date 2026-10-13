@@ -4,6 +4,7 @@
 -->
 <script lang="ts">
   import type { AuditRunStatus } from "../lib/types";
+  import { ICONS } from "../lib/icons";
 
   interface Props {
     /** 自定义规则文件名；null 表示使用内置通用规则。 */
