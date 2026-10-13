@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 use rayon::prelude::*;
 
+use crate::annotated_docx::generate_annotated_docx;
 use crate::checkers::{self, CompiledChecker};
 use crate::dsl::{
     AuditContext, AuditReport, FileAuditSummary, FileStatus, Paragraph, ParagraphRole,
@@ -338,6 +339,100 @@ fn summarize(
 }
 
 // =========================
+// 标注副本生成（P6 进阶项，批量审核收尾时调用）
+// =========================
+
+/// 标注副本输出子目录名：位于所选论文文件夹之下。
+pub const ANNOTATED_SUBDIR: &str = "格式检查输出";
+
+/// 标注副本文件名：`原名_标注版.docx`（与前端「打开标注文件夹」入口约定一致）。
+pub fn annotated_file_name(file_name: &str) -> String {
+    let stem = file_name
+        .strip_suffix(".docx")
+        .or_else(|| file_name.strip_suffix(".DOCX"))
+        .unwrap_or(file_name);
+    format!("{stem}_标注版.docx")
+}
+
+/// 为单个文件的违规列表生成标注副本（黄色高亮命中文本），写入 `out_path`。
+///
+/// 定位优先用 violation 的 block/paragraph/run 索引，越界时以 excerpt 全文匹配兜底；
+/// 两者都失败只计入 skipped，绝不中断整份文档的处理。
+/// 本函数不创建目录——目录创建由 [`annotate_batch`] 统一负责一次。
+fn annotate_one(summary: &FileAuditSummary, out_path: &Path) -> CoreResult<()> {
+    generate_annotated_docx(&summary.file_path, &summary.violations, out_path)?;
+    Ok(())
+}
+
+/// 批量审核收尾：把每个已完成检查文件的违规列表写回其原始 .docx 的标注副本，
+/// 统一放入 `dir/格式检查输出/`。原文件零改动。
+///
+/// 容错约定（与整条流水线的降级策略一致）：
+/// - 未开启（`enabled=false`）→ 直接返回 None，不建目录；
+/// - Skipped / ReadFailed 文件跳过（没有可信违规数据）；无违规的文件也跳过；
+/// - 单个文件标注失败只经 `on_log` 上报中文提示，不影响其余文件、不让整批失败；
+/// - 目录创建失败 → 记一条日志并返回 None（审核结果本身仍然有效）。
+///
+/// 返回实际生成的标注副本数；>0 时回填值为输出目录路径。
+fn annotate_batch(
+    dir: &Path,
+    summaries: &[FileAuditSummary],
+    enabled: bool,
+    progress: &impl AuditProgress,
+) -> Option<PathBuf> {
+    if !enabled {
+        return None;
+    }
+    // 只有确实产出内容时才建目录，避免空跑留下“格式检查输出”空壳。
+    let candidates: Vec<&FileAuditSummary> = summaries
+        .iter()
+        .filter(|s| matches!(s.status, FileStatus::Passed | FileStatus::NeedsRevision))
+        .filter(|s| !s.violations.is_empty())
+        .collect();
+    if candidates.is_empty() {
+        return None;
+    }
+
+    let out_dir = dir.join(ANNOTATED_SUBDIR);
+    if let Err(e) = std::fs::create_dir_all(&out_dir) {
+        progress.on_log(format!(
+            "无法创建标注文件夹（{}），本次跳过标注稿生成。",
+            e.user_message()
+        ));
+        return None;
+    }
+
+    let mut made = 0usize;
+    let mut failed = 0usize;
+    for s in &candidates {
+        let out_path = out_dir.join(annotated_file_name(&s.file_name));
+        match annotate_one(s, &out_path) {
+            Ok(()) => made += 1,
+            Err(e) => {
+                failed += 1;
+                progress.on_log(format!("{}：标注副本生成失败（{}）。", s.file_name, e.user_message()));
+            }
+        }
+    }
+
+    if failed > 0 {
+        progress.on_log(format!(
+            "标注稿完成：成功 {made} 份，{failed} 份未能生成，可对照报告手动修改。"
+        ));
+    } else {
+        progress.on_log(format!(
+            "已生成 {made} 份标注稿，存放在论文的「{ANNOTATED_SUBDIR}」文件夹中。"
+        ));
+    }
+
+    if made > 0 {
+        Some(out_dir)
+    } else {
+        None
+    }
+}
+
+// =========================
 // P5 批量审核调度
 // =========================
 
@@ -389,6 +484,19 @@ pub fn audit_directory(
     config: &RuleConfig,
     progress: impl AuditProgress + Sync,
     token: &CancellationToken,
+) -> CoreResult<AuditReport> {
+    audit_directory_with(dir, config, progress, token, false)
+}
+
+/// [`audit_directory`] 的可配置版：`generate_annotated` 为 true 时，检查完成后
+/// 把各文件的违规列表写回其原始 .docx 的标注副本（黄色高亮），统一放入
+/// 论文文件夹下的「格式检查输出」目录，并把该路径回填到 `report.output_dir`。
+pub fn audit_directory_with(
+    dir: impl AsRef<Path>,
+    config: &RuleConfig,
+    progress: impl AuditProgress + Sync,
+    token: &CancellationToken,
+    generate_annotated: bool,
 ) -> CoreResult<AuditReport> {
     let dir = dir.as_ref();
     if !dir.is_dir() {
@@ -484,6 +592,9 @@ pub fn audit_directory(
         ));
     }
 
+    // 标注稿集成：把违规列表与原始 .docx 结合生成标注副本，路径回填 report.output_dir。
+    let output_dir = annotate_batch(dir, &summaries, generate_annotated, &progress);
+
     Ok(AuditReport {
         generated_at: now_display(),
         input_dir: dir.to_path_buf(),
@@ -497,6 +608,7 @@ pub fn audit_directory(
         total_warnings,
         total_infos,
         files: summaries,
+        output_dir,
     })
 }
 

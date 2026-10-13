@@ -25,6 +25,19 @@ const EVENT_ERROR: &str = "audit://error";
 pub struct AuditOptions {
     pub input_dir: String,
     pub rule_file: String,
+    #[serde(default)]
+    pub generate_annotated_docx: bool,
+}
+
+/// 单个 .docx 生成标注副本的参数（对应前端 `generateAnnotatedDocx`）。
+#[derive(Debug, Clone, Deserialize)]
+pub struct AnnotateOptions {
+    /// 原始论文 .docx 路径。
+    pub source_docx: String,
+    /// 该文件在本次审核中命中的违规列表（JSON，`format_core::dsl::Violation` 数组）。
+    pub violations_json: String,
+    /// 标注副本输出路径（.docx）。
+    pub output_path: String,
 }
 
 /// 目录中的一个 .docx 文件（对应前端 `FileMeta`，供 UI 预览）。
@@ -185,6 +198,43 @@ pub async fn export_report(
     }
 }
 
+/// 单个 .docx 生成标注副本（供前端「打开标注稿」入口按需调用）。
+#[tauri::command]
+pub async fn generate_annotated_docx(options: AnnotateOptions) -> Result<String, String> {
+    let source = PathBuf::from(&options.source_docx);
+    if !source.is_file() {
+        return Err("原始论文文件不存在或已被移动，请重新运行检查。".to_string());
+    }
+    let violations: Vec<format_core::dsl::Violation> =
+        serde_json::from_str(&options.violations_json).map_err(|e| {
+            format!("违规数据有误，无法生成标注稿：{e}\n（请重新运行一次检查后再试）")
+        })?;
+
+    let out = PathBuf::from(&options.output_path);
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent).map_err(|_| "无法创建输出文件夹，请检查磁盘权限。")?;
+    }
+
+    // 纯 CPU + IO 的 zip/XML 操作放进阻塞线程，避免卡住命令运行时。
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        format_core::annotated_docx::generate_annotated_docx(&source, &violations, &out)
+    })
+    .await
+    .map_err(|_| "标注稿生成任务意外中断，请重试。".to_string())?;
+
+    match result {
+        Ok(stats) => Ok(format!(
+            "标注稿已生成：{}（高亮 {} 处）",
+            out.display(),
+            stats.highlighted_runs
+        )),
+        Err(e) => {
+            eprintln!("[generate_annotated_docx] {}", e.debug_chain());
+            Err(e.user_message())
+        }
+    }
+}
+
 /// 列出目录下全部 .docx（供 UI 预览，不代表审核范围）。
 #[tauri::command]
 pub fn list_docx_files(dir: String) -> Result<Vec<FileMeta>, String> {
@@ -325,6 +375,7 @@ pub async fn start_audit(app: AppHandle, options: AuditOptions) -> Result<String
             forwarder,
             token,
             done,
+            options.generate_annotated_docx,
         )
     });
 
@@ -368,7 +419,7 @@ pub fn cancel_audit(job_id: String, jobs: State<'_, AuditJobs>) -> Result<(), St
     }
 }
 
-/// 阻塞线程中执行的真实审核流程：回填 total、调用 `audit_directory` 并 emit done/error。
+/// 阻塞线程中执行的真实审核流程：回填 total、调用 `audit_directory_with` 并 emit done/error。
 fn audit_job_body(
     app: AppHandle,
     job_id: String,
@@ -377,6 +428,7 @@ fn audit_job_body(
     forwarder: EventForwarder,
     token: Arc<format_core::audit::CancellationToken>,
     done: Arc<Mutex<(usize, usize)>>,
+    generate_annotated: bool,
 ) {
     // 先扫描目录回填总数，让前端 progress 事件里的 total 有意义。
     let mut files = Vec::new();
@@ -388,7 +440,7 @@ fn audit_job_body(
 
     // ★ E0277 修复核心：按值传 `forwarder`（`AuditProgress` 为 `EventForwarder` 本身实现，
     //   满足 `impl AuditProgress + Sync`）；绝不能传 `&forwarder`——引用类型未实现该 trait。
-    match format_core::audit::audit_directory(&input_dir, &config, forwarder, &token) {
+    match format_core::audit::audit_directory_with(&input_dir, &config, forwarder, &token, generate_annotated) {
         Ok(report) => {
             let cancelled = token.is_cancelled();
 

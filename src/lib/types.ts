@@ -73,6 +73,11 @@ export interface AuditReport {
   total_warnings: number;
   total_infos: number;
   files: AuditSummary[];
+  /**
+   * 本次结果的输出目录（论文文件夹下的「格式检查输出」）。
+   * 由 audit.rs 在生成标注稿后回填；未生成任何产物时为 null。
+   */
+  output_dir?: string | null;
 }
 
 /** 目录中的一个 .docx 文件（对应命令 `list_docx_files` 返回值）。 */
