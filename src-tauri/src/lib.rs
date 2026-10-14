@@ -8,6 +8,7 @@ mod commands;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         // 批量审核任务注册表（job_id -> 取消令牌），供 start_audit / cancel_audit 共享。
         .manage(commands::AuditJobs::default())
         .invoke_handler(tauri::generate_handler![
