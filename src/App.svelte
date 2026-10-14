@@ -46,6 +46,8 @@
     exportCsv,
     openAnnotatedFolder,
     selectFile,
+    draggingOver,
+    initDragDrop,
   } from "./lib/stores";
 
   /** 未选择文件夹时禁用「开始批量审核」（stores.startAudit 内还会校验规则文件）。 */
@@ -61,13 +63,43 @@
     $selectedFile ? ($summary?.files.find((f) => f.file_path === $selectedFile) ?? null) : null,
   );
 
-  /** 拖拽回调占位：后续在此接 Tauri 窗口级 drag-drop 的真实路径。 */
-  function handleDropPath(_path: string): void {
-    // TODO(P9): 接入 Tauri onDragDropEvent，拿到真实目录后写入 inputDir 并刷新计数。
-  }
+  /**
+   * 接线 Tauri 窗口级 drag-drop：enter/leave 驱动拖拽高亮，drop 拿到真实路径后
+   * 由 stores.handleDroppedPaths 设为论文文件夹 / 规则文件（见 stores.ts）。
+   */
+  $effect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    void initDragDrop().then((u) => {
+      if (disposed) u?.();
+      else unlisten = u;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  });
 </script>
 
-<div data-theme="light" class="min-h-screen bg-white text-ink min-w-[1024px] lg:min-w-0">
+<div
+  data-theme="light"
+  class="min-h-screen bg-white text-ink min-w-[1024px] lg:min-w-0 transition-colors"
+  class:ring-2={$draggingOver}
+  class:ring-accent={$draggingOver}
+>
+  <!-- 全局拖拽遮罩：原生文件被拖入窗口时提示可直接放置 -->
+  {#if $draggingOver}
+    <div
+      class="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-accent/5"
+      role="status"
+      aria-label="松开鼠标即可将文件夹设为论文文件夹"
+    >
+      <div class="rounded-card border border-dashed border-accent bg-white px-6 py-4 text-sm text-ink shadow">
+        松开鼠标：文件夹将作为论文文件夹，.json 将作为规则文件
+      </div>
+    </div>
+  {/if}
+
   <!-- 顶部 Header：细线分隔，无阴影 -->
   <header class="border-b border-line bg-white">
     <div class="mx-auto max-w-screen-xl px-6 py-5 lg:px-10 flex items-baseline justify-between gap-4">
@@ -85,7 +117,7 @@
         status={$status}
         fileCount={$fileCount}
         onChoose={chooseInputDir}
-        onDropPath={handleDropPath}
+        dragging={$draggingOver}
       />
       <RuleSelector
         ruleFileName={$ruleFileName}
