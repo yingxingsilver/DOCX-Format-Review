@@ -1,0 +1,68 @@
+name: Rust PR Check
+
+on:
+  pull_request:
+  merge_group:
+
+concurrency:
+  group: rust-pr-check-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 1
+
+jobs:
+  rust-check:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: 快速检查 format_core
+            os: ubuntu-latest
+            timeout: 15
+            workspaces: "."
+            cache_key: core
+            install_system_deps: false
+            command: cargo check -p format_core --all-targets --locked
+
+          - name: 快速检查 Tauri 后端
+            os: ubuntu-22.04
+            timeout: 25
+            workspaces: "src-tauri -> target"
+            cache_key: tauri
+            install_system_deps: true
+            command: cargo check -p paper-format-auditor --manifest-path src-tauri/Cargo.toml --all-targets --locked
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装系统依赖
+        if: matrix.install_system_deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            librsvg2-dev \
+            patchelf \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ matrix.workspaces }}
+          key: pr-${{ matrix.cache_key }}-${{ runner.os }}
+          cache-all-crates: "true"
+
+      - name: 执行检查
+        run: ${{ matrix.command }}
