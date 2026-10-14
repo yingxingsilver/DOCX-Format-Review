@@ -214,6 +214,7 @@ pub async fn generate_annotated_docx(options: AnnotateOptions) -> Result<String,
     if let Some(parent) = out.parent() {
         std::fs::create_dir_all(parent).map_err(|_| "无法创建输出文件夹，请检查磁盘权限。")?;
     }
+    let out_display = out.clone();
 
     // 纯 CPU + IO 的 zip/XML 操作放进阻塞线程，避免卡住命令运行时。
     let result = tauri::async_runtime::spawn_blocking(move || {
@@ -225,7 +226,7 @@ pub async fn generate_annotated_docx(options: AnnotateOptions) -> Result<String,
     match result {
         Ok(stats) => Ok(format!(
             "标注稿已生成：{}（高亮 {} 处）",
-            out.display(),
+            out_display.display(),
             stats.highlighted_runs
         )),
         Err(e) => {
