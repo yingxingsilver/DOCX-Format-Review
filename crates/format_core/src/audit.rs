@@ -397,7 +397,7 @@ fn annotate_batch(
     if let Err(e) = std::fs::create_dir_all(&out_dir) {
         progress.on_log(format!(
             "无法创建标注文件夹（{}），本次跳过标注稿生成。",
-            e.user_message()
+            e
         ));
         return None;
     }

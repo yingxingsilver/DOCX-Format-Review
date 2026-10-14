@@ -22,9 +22,9 @@ use quick_xml::events::{BytesEnd, BytesStart, Event};
 use quick_xml::Reader;
 
 use crate::dsl::{
-    half_points_to_pt, twips_to_cm, twips_to_mm, Alignment, Block, DirectParagraphProps,
+    half_points_to_pt, twips_to_cm, twips_to_mm, Alignment, Block, CaptionPosition, DirectParagraphProps,
     DirectRunProps, InlineObject, InlineObjectKind, Margins, PageSize, Paragraph, ParagraphRole,
-    ParsedDocument, Run, SectionProperties, StyleDefinition, TableBlock, TableCell, TableRow,
+    ParsedDocument, RoleTag, Run, SectionProperties, StyleDefinition, TableBlock, TableCell, TableRow,
     TextClassSummary,
 };
 use crate::error::{CoreError, CoreResult};
@@ -88,7 +88,7 @@ pub fn parse_docx(path: &Path) -> CoreResult<ParsedDocument> {
     let warnings = parse_document_xml(&document_xml, &mut doc)?;
     doc.parse_warnings.extend(warnings);
 
-    // —— 样式求解 + 派生信息 ——
+    // —— 样式求解 + 派生信息（含解析阶段事实回填 annotate_derived_facts）——
     crate::style_resolver::resolve_document(&mut doc);
     crate::derive_info::populate_derived(&mut doc);
     Ok(doc)
@@ -209,12 +209,19 @@ fn xml_err(part: &str, e: XmlErr) -> CoreError {
     }
 }
 
-/// 跳过当前元素的剩余内容（配平同名嵌套）。调用点位于 Start 之后。
-fn skip_element(reader: &mut Reader<&[u8]>, buf: &mut Vec<u8>, name: &str) -> CoreResult<()> {
-    skip_element_dyn(&mut *reader, buf, name)
+/// quick-xml 0.36：`read_event_into` 要求阅读器实现 `BufRead`。
+type XmlReader<'a> = Reader<std::io::Cursor<&'a [u8]>>;
+
+/// 从 XML 文本构造事件阅读器（关闭 trim_text，保留 w:t 内空格语义）。
+/// Cursor 自带 BufRead 实现（内部按 chunk 缓冲），可直接用于 read_event_into。
+fn xml_reader(xml: &str) -> XmlReader<'_> {
+    let mut reader = Reader::from_reader(std::io::Cursor::new(xml.as_bytes()));
+    reader.config_mut().trim_text(false);
+    reader
 }
 
-fn skip_element_dyn<R: std::io::Read>(
+/// 跳过当前元素的剩余内容（配平同名嵌套）。调用点位于 Start 之后。
+fn skip_element<R: std::io::BufRead>(
     reader: &mut Reader<R>,
     buf: &mut Vec<u8>,
     name: &str,
@@ -253,8 +260,7 @@ fn skip_element_dyn<R: std::io::Read>(
 pub fn parse_styles_xml(
     xml: &str,
 ) -> CoreResult<(HashMap<String, StyleDefinition>, Option<StyleDefinition>)> {
-    let mut reader = Reader::from_str(xml);
-    reader.config_mut().trim_text(false);
+    let mut reader = xml_reader(xml);
     let mut buf = Vec::new();
     let mut styles: HashMap<String, StyleDefinition> = HashMap::new();
     let mut doc_defaults: Option<StyleDefinition> = None;
@@ -268,8 +274,8 @@ pub fn parse_styles_xml(
             Ok(ev) => ev,
             Err(e) => return Err(xml_err("word/styles.xml", e)),
         };
-        match &event {
-            Event::Start(e) if local_name(e) == "docDefaults" => {
+        match event {
+            Event::Start(e) if local_name(&e) == "docDefaults" => {
                 let mut def = StyleDefinition {
                     style_id: "@docDefaults".into(),
                     name: None,
@@ -283,9 +289,9 @@ pub fn parse_styles_xml(
                 parse_style_body(&mut reader, &mut buf, &mut def, None)?;
                 doc_defaults = Some(def);
             }
-            Event::Start(e) if local_name(e) == "style" => {
-                let id = attr_val(e, "styleId").unwrap_or_default();
-                let stype = attr_val(e, "type").unwrap_or_else(|| "paragraph".into());
+            Event::Start(e) if local_name(&e) == "style" => {
+                let id = attr_val(&e, "styleId").unwrap_or_default();
+                let stype = attr_val(&e, "type").unwrap_or_else(|| "paragraph".into());
                 if !id.is_empty() {
                     let mut def = StyleDefinition {
                         style_id: id.clone(),
@@ -306,7 +312,7 @@ pub fn parse_styles_xml(
                     skip_element(&mut reader, &mut buf, "style")?;
                 }
             }
-            Ok(Event::Eof) => break,
+            Event::Eof => break,
             _ => {}
         }
         buf.clear();
@@ -336,45 +342,45 @@ fn merge_run_defaults(target: &mut DirectRunProps, from: &DirectRunProps) {
 }
 
 /// 解析 `<w:style>` / `<w:docDefaults>` 体直到对应 End：name/basedOn/next/pPr/rPr/rStyle。
-fn parse_style_body<B: std::io::Read>(
-    reader: &mut Reader<B>,
+fn parse_style_body<R: std::io::BufRead>(
+    reader: &mut Reader<R>,
     buf: &mut Vec<u8>,
     def: &mut StyleDefinition,
-    rstyle_refs: Option<&mut HashMap<String, String>>,
+    mut rstyle_refs: Option<&mut HashMap<String, String>>,
 ) -> CoreResult<()> {
     loop {
         let event = match reader.read_event_into(buf) {
             Ok(ev) => ev,
             Err(e) => return Err(xml_err("word/styles.xml", e)),
         };
-        match &event {
-            Event::Empty(e) => match local_name(e).as_str() {
-                "basedOn" => def.based_on = attr_val(e, "val"),
-                "next" => def.next_paragraph_style = attr_val(e, "val"),
+        match event {
+            Event::Empty(e) => match local_name(&e).as_str() {
+                "basedOn" => def.based_on = attr_val(&e, "val"),
+                "next" => def.next_paragraph_style = attr_val(&e, "val"),
                 "link" => {
-                    if let Some(v) = attr_val(e, "val") {
+                    if let Some(v) = attr_val(&e, "val") {
                         def.aliases.push(format!("linked:{v}"));
                     }
                 }
                 "outlineLvl" => {
-                    if let Some(v) = attr_f64(e, "val") {
+                    if let Some(v) = attr_f64(&e, "val") {
                         def.paragraph_props.outline_level = Some(v.max(0.0) as u8);
                     }
                 }
                 "rStyle" => {
-                    if let (Some(v), Some(map)) = (attr_val(e, "val"), rstyle_refs.as_mut()) {
+                    if let (Some(v), Some(map)) = (attr_val(&e, "val"), rstyle_refs.as_deref_mut()) {
                         map.insert(def.style_id.clone(), v);
                     }
                 }
                 _ => {}
             },
-            Event::Start(e) => match local_name(e).as_str() {
+            Event::Start(e) => match local_name(&e).as_str() {
                 "name" => {
-                    def.name = attr_val(e, "val");
+                    def.name = attr_val(&e, "val");
                     skip_element(reader, buf, "name")?;
                 }
                 "pPr" => {
-                    parse_ppr_until_end(reader, buf, &mut def.paragraph_props, rstyle_refs)?;
+                    parse_ppr_until_end(reader, buf, &mut def.paragraph_props, rstyle_refs.as_deref_mut())?;
                 }
                 "rPr" => {
                     let mut props = DirectRunProps::default();
@@ -387,12 +393,12 @@ fn parse_style_body<B: std::io::Read>(
                 }
             },
             Event::End(e) => {
-                let n = local_name_end(e);
+                let n = local_name_end(&e);
                 if n == "style" || n == "docDefaults" {
                     return Ok(());
                 }
             }
-            Ok(Event::Eof) => return Ok(()),
+            Event::Eof => return Ok(()),
             _ => {}
         }
         buf.clear();
@@ -400,26 +406,25 @@ fn parse_style_body<B: std::io::Read>(
 }
 
 /// 解析 pPr 内部直到 `</w:pPr>`；顺带捕获其中的 `<w:rStyle>` 引用。
-fn parse_ppr_until_end<B: std::io::Read>(
-    reader: &mut Reader<B>,
+fn parse_ppr_until_end<R: std::io::BufRead>(
+    reader: &mut Reader<R>,
     buf: &mut Vec<u8>,
     props: &mut DirectParagraphProps,
-    rstyle_refs: Option<&mut HashMap<String, String>>,
+    mut rstyle_refs: Option<&mut HashMap<String, String>>,
 ) -> CoreResult<()> {
     loop {
         let event = match reader.read_event_into(buf) {
             Ok(ev) => ev,
             Err(e) => return Err(xml_err("word/document.xml", e)),
         };
-        match &event {
-            Event::End(e) if local_name_end(e) == "pPr" => return Ok(()),
-            Event::Empty(e) => handle_ppr_simple(e, props),
-            Event::Start(e) => {
+        match event {
+            Event::End(ref e) if local_name_end(e) == "pPr" => return Ok(()),
+            Event::Empty(ref e) => handle_ppr_simple(e, props),
+            Event::Start(ref e) => {
                 let name = local_name(e);
                 match name.as_str() {
                     "rStyle" => {
-                        if let (Some(v), Some(map)) = (attr_val(e, "val"), rstyle_refs.as_mut())
-                        {
+                        if let (Some(v), Some(map)) = (attr_val(e, "val"), rstyle_refs.as_deref_mut()) {
                             // styleId 在 map 外不可知——由调用方补写；这里借 props.style_id 之外
                             // 的通道：pPr 里的 rStyle 极少见，忽略即可。
                             let _ = (v, map);
@@ -433,7 +438,7 @@ fn parse_ppr_until_end<B: std::io::Read>(
                     _ => skip_element(reader, buf, &name)?,
                 }
             }
-            Ok(Event::Eof) => return Ok(()),
+            Event::Eof => return Ok(()),
             _ => {}
         }
         buf.clear();
@@ -481,8 +486,8 @@ fn handle_ppr_simple(e: &BytesStart<'_>, props: &mut DirectParagraphProps) {
 }
 
 /// 解析 rPr（run 或样式内通用）直到其 End 事件。
-fn parse_rpr_until_end<B: std::io::Read>(
-    reader: &mut Reader<B>,
+fn parse_rpr_until_end<R: std::io::BufRead>(
+    reader: &mut Reader<R>,
     buf: &mut Vec<u8>,
     props: &mut DirectRunProps,
 ) -> CoreResult<()> {
@@ -491,15 +496,15 @@ fn parse_rpr_until_end<B: std::io::Read>(
             Ok(ev) => ev,
             Err(e) => return Err(xml_err("word/document.xml", e)),
         };
-        match &event {
-            Event::End(e) if local_name_end(e) == "rPr" => return Ok(()),
-            Event::Empty(ev) => handle_rpr_simple(ev, props),
-            Event::Start(ev) => {
+        match event {
+            Event::End(ref e) if local_name_end(e) == "rPr" => return Ok(()),
+            Event::Empty(ref ev) => handle_rpr_simple(ev, props),
+            Event::Start(ref ev) => {
                 let name = local_name(ev);
                 handle_rpr_simple(ev, props);
                 skip_element(reader, buf, &name)?;
             }
-            Ok(Event::Eof) => return Ok(()),
+            Event::Eof => return Ok(()),
             _ => {}
         }
         buf.clear();
@@ -534,8 +539,7 @@ fn handle_rpr_simple(e: &BytesStart<'_>, props: &mut DirectRunProps) {
 
 /// 解析 body：段落 / 表格 / 分节符。返回中文警告列表。
 pub fn parse_document_xml(xml: &str, doc: &mut ParsedDocument) -> CoreResult<Vec<String>> {
-    let mut reader = Reader::from_str(xml);
-    reader.config_mut().trim_text(false);
+    let mut reader = xml_reader(xml);
     let mut buf = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
 
@@ -553,8 +557,8 @@ pub fn parse_document_xml(xml: &str, doc: &mut ParsedDocument) -> CoreResult<Vec
             Ok(ev) => ev,
             Err(e) => return Err(xml_err("word/document.xml", e)),
         };
-        match &event {
-            Event::Start(e) => match local_name(e).as_str() {
+        match event {
+            Event::Start(ref e) => match local_name(e).as_str() {
                 "p" => {
                     let ctx = ParaCtx {
                         in_table: table_depth > 0,
@@ -595,7 +599,7 @@ pub fn parse_document_xml(xml: &str, doc: &mut ParsedDocument) -> CoreResult<Vec
                 "footnote" | "endnote" => footnote_depth += 1,
                 _ => {}
             },
-            Event::Empty(e) => match local_name(e).as_str() {
+            Event::Empty(ref e) => match local_name(e).as_str() {
                 "p" => {
                     let para = empty_paragraph(doc.paragraphs.len(), block_index, section_index,
                         table_depth > 0, header_footer_depth > 0, footnote_depth > 0);
@@ -608,7 +612,7 @@ pub fn parse_document_xml(xml: &str, doc: &mut ParsedDocument) -> CoreResult<Vec
                 }
                 _ => {}
             },
-            Event::End(e) => match local_name_end(e).as_str() {
+            Event::End(ref e) => match local_name_end(e).as_str() {
                 "tbl" if table_depth > 0 => {
                     table_depth -= 1;
                     if table_depth == 0 {
@@ -655,7 +659,7 @@ pub fn parse_document_xml(xml: &str, doc: &mut ParsedDocument) -> CoreResult<Vec
                 }
                 _ => {}
             },
-            Ok(Event::Eof) => break,
+            Event::Eof => break,
             _ => {}
         }
         buf.clear();
@@ -745,8 +749,8 @@ struct ParaCtx {
 }
 
 /// 解析一个 `<w:p>`（Start 之后）到 End；返回段落与其中新增的分页符数。
-fn parse_paragraph<B: std::io::Read>(
-    reader: &mut Reader<B>,
+fn parse_paragraph<R: std::io::BufRead>(
+    reader: &mut Reader<R>,
     buf: &mut Vec<u8>,
     ctx: &ParaCtx,
 ) -> CoreResult<(Paragraph, u32)> {
@@ -761,9 +765,9 @@ fn parse_paragraph<B: std::io::Read>(
             Ok(ev) => ev,
             Err(e) => return Err(xml_err("word/document.xml", e)),
         };
-        match &event {
-            Event::End(e) if local_name_end(e) == "p" => break,
-            Event::Start(e) => match local_name(e).as_str() {
+        match event {
+            Event::End(ref e) if local_name_end(e) == "p" => break,
+            Event::Start(ref e) => match local_name(e).as_str() {
                 "pPr" => {
                     parse_ppr_until_end(reader, buf, &mut direct, None)?;
                 }
@@ -776,12 +780,12 @@ fn parse_paragraph<B: std::io::Read>(
                 }
                 _ => {} // hyperlink/smartTag/ins 等容器：其内部 <w:r> 由下一轮循环捕获
             },
-            Event::Empty(e) => {
+            Event::Empty(ref e) => {
                 if local_name(e) == "br" && attr_val(e, "type").as_deref() == Some("page") {
                     breaks += 1;
                 }
             }
-            Ok(Event::Eof) => break,
+            Event::Eof => break,
             _ => {}
         }
         buf.clear();
@@ -821,8 +825,8 @@ fn merge_summary(mut a: TextClassSummary, b: TextClassSummary) -> TextClassSumma
 }
 
 /// 解析一个 `<w:r>`（Start 之后）到 End。
-fn parse_run<B: std::io::Read>(
-    reader: &mut Reader<B>,
+fn parse_run<R: std::io::BufRead>(
+    reader: &mut Reader<R>,
     buf: &mut Vec<u8>,
     index: usize,
 ) -> CoreResult<(Run, u32)> {
@@ -837,9 +841,9 @@ fn parse_run<B: std::io::Read>(
             Ok(ev) => ev,
             Err(e) => return Err(xml_err("word/document.xml", e)),
         };
-        match &event {
-            Event::End(e) if local_name_end(e) == "r" => break,
-            Event::Start(e) => match local_name(e).as_str() {
+        match event {
+            Event::End(ref e) if local_name_end(e) == "r" => break,
+            Event::Start(ref e) => match local_name(e).as_str() {
                 "rPr" => {
                     let mut holder = RprRefs {
                         props: &mut props,
@@ -867,7 +871,7 @@ fn parse_run<B: std::io::Read>(
                     skip_element(reader, buf, &n)?;
                 }
             },
-            Event::Empty(e) => match local_name(e).as_str() {
+            Event::Empty(ref e) => match local_name(e).as_str() {
                 "rStyle" => character_style_id = attr_val(e, "val"),
                 "br" => {
                     if attr_val(e, "type").as_deref() == Some("page") {
@@ -876,7 +880,7 @@ fn parse_run<B: std::io::Read>(
                 }
                 _ => {}
             },
-            Ok(Event::Eof) => break,
+            Event::Eof => break,
             _ => {}
         }
         buf.clear();
@@ -903,9 +907,9 @@ struct RprRefs<'a> {
 }
 
 impl RprRefs<'_> {
-    fn parse_until_rpr_end<B: std::io::Read>(
+    fn parse_until_rpr_end<R: std::io::BufRead>(
         &mut self,
-        reader: &mut Reader<B>,
+        reader: &mut Reader<R>,
         buf: &mut Vec<u8>,
     ) -> CoreResult<()> {
         loop {
@@ -913,16 +917,16 @@ impl RprRefs<'_> {
                 Ok(ev) => ev,
                 Err(e) => return Err(xml_err("word/document.xml", e)),
             };
-            match &event {
-                Event::End(e) if local_name_end(e) == "rPr" => return Ok(()),
-                Event::Empty(ev) => {
+            match event {
+                Event::End(ref e) if local_name_end(e) == "rPr" => return Ok(()),
+                Event::Empty(ref ev) => {
                     if local_name(ev) == "rStyle" {
                         *self.character_style_id = attr_val(ev, "val");
                     } else {
                         handle_rpr_simple(ev, self.props);
                     }
                 }
-                Event::Start(ev) => {
+                Event::Start(ref ev) => {
                     let name = local_name(ev);
                     if name == "rStyle" {
                         *self.character_style_id = attr_val(ev, "val");
@@ -931,7 +935,7 @@ impl RprRefs<'_> {
                     }
                     skip_element(reader, buf, &name)?;
                 }
-                Ok(Event::Eof) => return Ok(()),
+                Event::Eof => return Ok(()),
                 _ => {}
             }
             buf.clear();
@@ -939,8 +943,8 @@ impl RprRefs<'_> {
     }
 }
 
-fn consume_end<B: std::io::Read>(
-    reader: &mut Reader<B>,
+fn consume_end<R: std::io::BufRead>(
+    reader: &mut Reader<R>,
     buf: &mut Vec<u8>,
     name: &str,
 ) -> CoreResult<()> {
@@ -956,8 +960,8 @@ fn consume_end<B: std::io::Read>(
 }
 
 /// 扫描 drawing/pict/object 内部：提取 extent 尺寸、blip rel id、对象名。
-fn scan_inline_object<B: std::io::Read>(
-    reader: &mut Reader<B>,
+fn scan_inline_object<R: std::io::BufRead>(
+    reader: &mut Reader<R>,
     buf: &mut Vec<u8>,
     outer: &str,
     kind: InlineObjectKind,
@@ -975,8 +979,8 @@ fn scan_inline_object<B: std::io::Read>(
             Ok(ev) => ev,
             Err(e) => return Err(xml_err("word/document.xml", e)),
         };
-        match &event {
-            Event::Start(e) | Event::Empty(e) => match local_name(e).as_str() {
+        match event {
+            Event::Start(ref e) | Event::Empty(ref e) => match local_name(e).as_str() {
                 "extent" => {
                     if obj.width_emu.is_none() {
                         obj.width_emu = attr_f64(e, "cx").map(|v| v as u64);
@@ -995,8 +999,8 @@ fn scan_inline_object<B: std::io::Read>(
                 }
                 _ => {}
             },
-            Event::End(e) if local_name_end(e) == outer_owned => break,
-            Ok(Event::Eof) => break,
+            Event::End(ref e) if local_name_end(e) == outer_owned => break,
+            Event::Eof => break,
             _ => {}
         }
         buf.clear();
@@ -1005,8 +1009,8 @@ fn scan_inline_object<B: std::io::Read>(
 }
 
 /// 解析 `<w:sectPr>`（Start 之后）到 End。
-fn parse_sectpr<B: std::io::Read>(
-    reader: &mut Reader<B>,
+fn parse_sectpr<R: std::io::BufRead>(
+    reader: &mut Reader<R>,
     buf: &mut Vec<u8>,
     index: usize,
 ) -> CoreResult<SectionProperties> {
@@ -1023,9 +1027,9 @@ fn parse_sectpr<B: std::io::Read>(
             Ok(ev) => ev,
             Err(e) => return Err(xml_err("word/document.xml", e)),
         };
-        match &event {
-            Event::End(e) if local_name_end(e) == "sectPr" => break,
-            Event::Empty(e) | Event::Start(e) => match local_name(e).as_str() {
+        match event {
+            Event::End(ref e) if local_name_end(e) == "sectPr" => break,
+            Event::Empty(ref e) | Event::Start(ref e) => match local_name(e).as_str() {
                 "pgSz" => {
                     let w = attr_f64(e, "w").unwrap_or(0.0) as i64;
                     let h = attr_f64(e, "h").unwrap_or(0.0) as i64;
@@ -1059,7 +1063,7 @@ fn parse_sectpr<B: std::io::Read>(
                 }
                 _ => {}
             },
-            Ok(Event::Eof) => break,
+            Event::Eof => break,
             _ => {}
         }
         buf.clear();
@@ -1091,6 +1095,109 @@ fn parse_sectpr<B: std::io::Read>(
         header_references: headers,
         footer_references: footers,
     })
+}
+
+// =========================
+// 解析阶段派生事实回填（由 derive_info::populate_derived 末尾调用）
+// =========================
+
+/// 把"只有解包时才拿得到"的结构事实回填进文档模型，供规则引擎直接消费：
+/// - `FirstNonEmpty`：全文第一个非空段落；
+/// - `InTable / InHeader / InFootnote / InEndnote`：按段落上下文标志补写角色标签；
+/// - `ContainsCitation`：文内引用出现处（引用列表已含 run 级位置，这里落到段落标签）；
+/// - 题注的邻近对象块与相对位置：在同 block 序列中就近查找图形段 / 表格块。
+pub fn annotate_derived_facts(doc: &mut ParsedDocument) {
+    // —— FirstNonEmpty ——
+    if let Some(p) = doc.paragraphs.iter().position(|p| !p.text.trim().is_empty()) {
+        push_tag(&mut doc.paragraphs[p], RoleTag::FirstNonEmpty);
+    }
+
+    // —— 结构上下文标签 ——
+    for p in &mut doc.paragraphs {
+        if p.in_table {
+            push_tag(p, RoleTag::InTable);
+        }
+        if p.in_header_footer {
+            push_tag(p, RoleTag::InHeader);
+        }
+        if p.in_footnote_endnote {
+            // document.xml 主体不含脚注/尾注部件；此处只能区分到"注释区"粒度，
+            // 具体 footnote/endnote 由部件名决定，默认归入脚注。
+            push_tag(p, RoleTag::InFootnote);
+        }
+    }
+
+    // —— ContainsCitation ——
+    let cite_paras: Vec<usize> = doc
+        .citations
+        .iter()
+        .map(|c| c.paragraph_index)
+        .collect();
+    for idx in cite_paras {
+        if let Some(p) = doc.paragraphs.get_mut(idx) {
+            push_tag(p, RoleTag::ContainsCitation);
+        }
+    }
+
+    // —— 题注邻近对象与位置 ——
+    // 图形段：run 内含 drawing/picture 对象的段落 → 其 block_index。
+    let figure_blocks: Vec<usize> = doc
+        .paragraphs
+        .iter()
+        .filter(|p| {
+            p.runs.iter().any(|r| {
+                r.inline_objects
+                    .iter()
+                    .any(|o| matches!(o.kind, InlineObjectKind::Drawing | InlineObjectKind::Picture))
+            })
+        })
+        .map(|p| p.block_index)
+        .collect();
+    // 表格块 block 索引集合。
+    let table_blocks: Vec<usize> = doc
+        .blocks
+        .iter()
+        .filter_map(|b| match b {
+            Block::Table(t) => Some(t.block_index),
+            _ => None,
+        })
+        .collect();
+
+    for cap in &mut doc.captions {
+        let para_idx = match doc.paragraphs.get(cap.paragraph_index) {
+            Some(_) => cap.paragraph_index,
+            None => continue,
+        };
+        let cap_block = doc.paragraphs[para_idx].block_index;
+        let (pool, want_below): (&[usize], bool) = match cap.kind {
+            // 惯例：图题在图下方（找上方最近图形块），表题在表上方（找下方最近表格块）。
+            crate::dsl::CaptionKind::Figure => (&figure_blocks, false),
+            crate::dsl::CaptionKind::Table => (&table_blocks, true),
+        };
+        let _ = want_below; // 位置以实际最近块方向为准，见下。
+        if let Some((near, _dist)) = pool
+            .iter()
+            .map(|&b| (b, (b as isize - cap_block as isize).abs()))
+            .min_by_key(|&(_, d)| d)
+            .filter(|&(_, d)| d <= 2)
+        {
+            cap.nearby_object_block_index = Some(near);
+            cap.position = if near < cap_block {
+                CaptionPosition::AboveObject
+            } else {
+                CaptionPosition::BelowObject
+            };
+        } else {
+            cap.nearby_object_block_index = None;
+            cap.position = CaptionPosition::Unknown;
+        }
+    }
+}
+
+fn push_tag(p: &mut Paragraph, tag: RoleTag) {
+    if !p.role_tags.contains(&tag) {
+        p.role_tags.push(tag);
+    }
 }
 
 #[cfg(test)]
