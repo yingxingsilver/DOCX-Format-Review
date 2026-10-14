@@ -22,7 +22,7 @@ use crate::dsl::{
 fn caption_prefix_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"^(附?[图表]|Figure|Fig\.?|Table)\s*([0-9]+(?:[-.．][0-9]+)*)").expect("静态正则必然合法")
+        Regex::new(r"^(附?[图表]|Figure|Fig\.?|Table)\s*([0-9]+(?:[-.．][0-9]+)*)\b").expect("静态正则必然合法")
     })
 }
 
