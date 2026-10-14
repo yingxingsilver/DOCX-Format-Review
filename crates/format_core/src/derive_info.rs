@@ -368,6 +368,7 @@ mod tests {
         let cs = extract_citations(&para(
             7,
             "该方法在多个领域得到验证[1]，后续研究[2-4]进一步扩展了适用范围[5，6]。",
+            None,
         ));
         assert_eq!(cs.len(), 3);
         assert_eq!(cs[0].numbers, vec![1]);
@@ -380,8 +381,8 @@ mod tests {
     fn reference_entry_requires_section_and_has_flags() {
         let text = "[12] 张三. 教育公平量化研究[J]. 教育研究, 2021(3): 12-19.";
         // 未进入参考文献区 → 不识别。
-        assert!(detect_reference_entry(&para(20, text), false).is_none());
-        let e = detect_reference_entry(&para(20, text), true).expect("应识别为条目");
+        assert!(detect_reference_entry(&para(20, text, None), false).is_none());
+        let e = detect_reference_entry(&para(20, text, None), true).expect("应识别为条目");
         assert_eq!(e.number, 12);
         assert_eq!(e.type_tag.as_deref(), Some("J"));
         assert!(e.has_year && e.has_pages && e.has_journal_or_publisher);
