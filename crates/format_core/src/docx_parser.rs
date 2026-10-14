@@ -8,8 +8,8 @@
 //! 4. [`crate::style_resolver::resolve_document`] 计算有效格式并填充 `effective`；
 //! 5. [`crate::derive_info::populate_derived`] 提取题注、文内引用、参考文献条目等派生信息。
 //!
-//! 兼容性约定：若存在同名 `.parsed.json` sidecar（旧导出管线的产物），优先按原路径加载，
-//! 保证既有工作流不被本阶段破坏；sidecar 缺失时走真实 XML 解析。
+//! 直读约定：旧导出管线的 `.parsed.json` sidecar **不再参与解析**——一切以 .docx 内 XML 为准，
+//! 保证同一文档无论是否存在陈旧缓存产物都得到一致结果。
 //!
 //! 错误策略：损坏/加密/缺部件 → `CoreError::Zip/Xml/MissingPart`，上层 audit 转成
 //! `FileStatus::ReadFailed` 中文友好文案；无法识别的节点只跳过或记 `parse_warnings`，绝不 panic。
@@ -49,11 +49,8 @@ pub fn parse_docx(path: &Path) -> CoreResult<ParsedDocument> {
         context: "打开论文文件".into(),
         source: e,
     })?;
-    // 兼容旧导出管线：sidecar 存在即优先使用（见模块注释）。
-    let json_path = sidecar_json(path);
-    if json_path.exists() {
-        return load_sidecar(path, &json_path);
-    }
+    // 快速失败：非 zip 容器（旧版 .doc / 损坏 / 伪装的文本文件）。
+    // 注意：旧导出管线的 `.parsed.json` sidecar 不再参与解析——一切以 XML 直读为准。
     if bytes.len() < 4 || bytes[0] != b'P' || bytes[1] != b'K' {
         return Err(CoreError::Zip {
             note: "这份文件无法识别，可能已损坏、是旧版格式或受密码保护。".into(),
@@ -118,27 +115,10 @@ fn new_document_shell(path: &Path) -> ParsedDocument {
     }
 }
 
-fn load_sidecar(path: &Path, json_path: &Path) -> CoreResult<ParsedDocument> {
-    let text = std::fs::read_to_string(json_path).map_err(|e| CoreError::Io {
-        context: "读取解析结果".into(),
-        source: e,
-    })?;
-    let mut doc: ParsedDocument =
-        serde_json::from_str(&text).map_err(|e| CoreError::SidecarInvalid {
-            path: json_path.display().to_string(),
-            source: Box::new(e),
-        })?;
-    doc.path = path.to_path_buf();
-    doc.file_name = path
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_string();
-    Ok(doc)
-}
-
-/// sidecar 路径：`foo.docx` → `foo.parsed.json`（与 audit 测试的命名约定一致）。
-fn sidecar_json(path: &Path) -> PathBuf {
+/// sidecar 路径：`foo.docx` → `foo.parsed.json`。
+///
+/// 仅供 audit 批量管线做“陈旧缓存清理”引用；解析本身绝不读取该文件（XML 直读是唯一事实源）。
+pub fn sidecar_json(path: &Path) -> PathBuf {
     let mut p = path.as_os_str().to_os_string();
     p.push(".parsed.json");
     PathBuf::from(p)
@@ -1295,12 +1275,13 @@ mod tests {
     }
 
     #[test]
-    fn corrupted_sidecar_still_maps_to_sidecar_invalid() {
-        let p = tmp("sidecar_broken_q1.docx");
+    fn corrupted_zip_with_sidecar_present_still_reports_zip_error() {
+        // 行为变更：sidecar 不再被读取，损坏的 .docx 直接报容器错误（而非 SidecarInvalid）。
+        let p = tmp("sidecar_broken_q2.docx");
         std::fs::write(&p, [b'P', b'K', 3, 4, 0, 0, 0, 0]).unwrap();
         std::fs::write(sidecar_json(&p), b"{ this is not valid json ").unwrap();
         let e = parse_docx(&p).unwrap_err();
-        assert!(matches!(e, CoreError::SidecarInvalid { .. }), "got {e:?}");
+        assert!(matches!(e, CoreError::Zip { .. }), "got {e:?}");
         let _ = std::fs::remove_file(&p);
         let _ = std::fs::remove_file(sidecar_json(&p));
     }
