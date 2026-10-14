@@ -9,6 +9,7 @@
 import { derived, get, readable, writable, type Readable } from "svelte/store";
 import * as api from "./api";
 import type {
+  ApiResult,
   AuditReport,
   AuditRunStatus,
   FileMeta,
@@ -42,6 +43,8 @@ export const selectedFile = writable<string | null>(null);
 export const exporting = writable<boolean>(false);
 /** 界面提示条（成功/错误各一次消费）。 */
 export const notice = writable<{ kind: "success" | "error"; text: string } | null>(null);
+/** 原生文件正被拖入窗口（Tauri drag-drop enter/leave 驱动，用于全局高亮反馈）。 */
+export const draggingOver = writable<boolean>(false);
 
 // —— P8C 组合根（App.svelte）使用的补充状态，命名与旧 uiState 层对齐 ——
 /** 规则文件名（由 rulePath 派生，仅展示用）。 */
@@ -237,6 +240,70 @@ export async function refreshFileList(): Promise<void> {
       setNotice("error", "这个文件夹里没有发现 Word 论文文件（.docx），请确认选对了位置。");
     }
   }
+}
+
+// =========================
+// 拖拽文件夹 / 规则文件进窗口（Tauri 原生 drag-drop，真实路径）
+// =========================
+
+/** 路径末级名称（兼容 Windows \ 与 Unix / 分隔符）。 */
+function baseName(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+}
+
+/**
+ * 处理一次原生拖放（drop 事件携带的绝对路径列表）：
+ * - 目录 → 设为论文文件夹并刷新 .docx 计数；
+ * - .json → 设为格式规则文件；
+ * - .docx → 取其所在目录作为论文文件夹；
+ * - running 期间禁止更改配置。
+ * 多个条目时按上述优先级各取第一个命中项。
+ */
+export async function handleDroppedPaths(paths: string[]): Promise<void> {
+  if (get(status) === "running") {
+    setNotice("error", "审核进行中，请先结束当前任务再更改文件夹或规则文件。");
+    return;
+  }
+  const dirs = paths.filter((p) => !/\.(docx?|json)$/i.test(p)); // 无扩展名/其他 → 视为目录候选
+  const jsons = paths.filter((p) => /\.json$/i.test(p));
+  const docxs = paths.filter((p) => /\.docx$/i.test(p));
+
+  const dir = dirs[0] ?? (docxs[0] ? docxs[0].slice(0, docxs[0].lastIndexOf("/")) : undefined);
+
+  if (dir === undefined && jsons.length === 0) {
+    setNotice("error", "只能拖入论文文件夹、Word 文件（.docx）或规则文件（.json），请重新拖拽。");
+    return;
+  }
+
+  if (dir !== undefined) {
+    inputDir.set(dir);
+    await refreshFileList();
+    if (get(files).length > 0) {
+      setNotice("success", `已选择文件夹「${baseName(dir)}」，共发现 ${get(files).length} 个 Word 文件。`);
+    }
+  }
+  if (jsons.length > 0) {
+    rulePath.set(jsons[0]);
+    setNotice("success", `已选择规则文件「${baseName(jsons[0])}」。`);
+  }
+}
+
+/**
+ * 注册窗口级拖拽监听（App mount 时调用一次；返回取消函数供卸载清理）。
+ * enter/leave 驱动全局高亮 store（draggingOver），drop 走 handleDroppedPaths。
+ */
+export async function initDragDrop(): Promise<(() => void) | null> {
+  const res = await api.onDragDropPaths((paths, kind) => {
+    draggingOver.set(kind !== "leave");
+    if (kind === "drop" && paths.length > 0) {
+      void handleDroppedPaths(paths);
+    }
+  });
+  if (!res.ok) {
+    setNotice("error", res.user_message ?? "无法启用拖拽功能。");
+    return null;
+  }
+  return res.data;
 }
 
 /** 启动批量审核。running 期间禁止重复启动。 */

@@ -16,33 +16,18 @@
     /** 点击「选择论文文件夹」时触发（父级接 stores.chooseInputDir）。 */
     onChoose: () => void;
     /**
-     * 拖拽放置回调：参数为尽力提取的路径字符串（可能为空）。
-     * 说明：Tauri v2 中原生文件拖拽需走窗口级 drag-drop 事件（webview 内
-     * DataTransfer 不含真实路径），本阶段先预留此处理点，后续在 App/主进程接线。
+     * 原生文件/文件夹正被拖入窗口（Tauri drag-drop enter/leave 驱动，父级接 stores.draggingOver）。
+     * 真实路径由 App 层统一监听 tauri://drag-drop 事件处理，本组件只负责高亮反馈。
      */
-    onDropPath?: (path: string) => void;
+    dragging?: boolean;
   }
 
-  let { inputDir, status, fileCount, onChoose, onDropPath }: Props = $props();
+  let { inputDir, status, fileCount, onChoose, dragging = false }: Props = $props();
 
   const disabled = $derived(status === "running");
   const displayName = $derived(
     inputDir ? inputDir.split(/[\\/]/).filter(Boolean).pop() ?? inputDir : null,
   );
-
-  let dragging = $state(false);
-
-  function handleDrop(e: DragEvent): void {
-    e.preventDefault();
-    dragging = false;
-    if (disabled) return;
-    // 尽力而为地提取路径（浏览器沙箱下通常只有文件名；真实路径由 Tauri 事件提供）。
-    const first = e.dataTransfer?.files?.[0];
-    const path =
-      // @ts-expect-error 浏览器扩展字段（Electron/Tauri 注入），标准 Web 不存在
-      first?.path ?? first?.name ?? "";
-    onDropPath?.(path);
-  }
 </script>
 
 <section class="card border border-line bg-white" aria-label="论文文件夹">
@@ -82,7 +67,8 @@
       {/if}
     </button>
 
-    <!-- 拖拽区：视觉反馈 + 预留 onDrop 处理（真实路径待接入 Tauri drag-drop） -->
+    <!-- 拖拽区：drop 本身由 Tauri 窗口级 drag-drop 事件处理（dragDropEnabled 会拦截 webview 默认行为），
+         这里 preventDefault 防止浏览器导航到拖放内容，高亮状态来自父级传入的 dragging。 -->
     <div
       role="button"
       tabindex={disabled ? -1 : 0}
@@ -92,9 +78,8 @@
           ? "border-line text-subtle cursor-not-allowed"
           : "border-line text-subtle hover:border-accent hover:text-ink cursor-pointer " +
             (dragging ? "border-accent bg-surface text-ink" : ""))}
-      ondragover={(e: DragEvent) => { e.preventDefault(); if (!disabled) dragging = true; }}
-      ondragleave={() => { dragging = false; }}
-      ondrop={handleDrop}
+      ondragover={(e: DragEvent) => e.preventDefault()}
+      ondrop={(e: DragEvent) => e.preventDefault()}
       onkeydown={(e) => {
         if (!disabled && (e.key === "Enter" || e.key === " ")) {
           e.preventDefault();

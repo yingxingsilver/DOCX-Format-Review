@@ -7,6 +7,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWebview, type DragDropEvent } from "@tauri-apps/api/webview";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 import type {
@@ -158,3 +159,30 @@ export const onAuditDone = (h: (p: DoneEvent) => void) => bind(AUDIT_EVENTS.done
 
 /** 监听 `audit://error`，返回取消函数。 */
 export const onAuditError = (h: (p: ErrorEvent) => void) => bind(AUDIT_EVENTS.error, h);
+
+// =========================
+// 窗口级文件拖拽（Tauri drag-drop 事件，携带真实路径）
+// =========================
+
+/**
+ * 监听 Tauri 窗口级的原生文件拖拽事件（需 tauri.conf.json 中 dragDropEnabled=true）。
+ * webview 内的 HTML5 DataTransfer 拿不到真实路径，只有这里的 `paths` 是操作系统提供的
+ * 绝对路径；enter/drop 时回调完整路径列表，leave 时回调空列表。返回取消函数。
+ */
+export async function onDragDropPaths(
+  handler: (paths: string[], kind: "enter" | "drop" | "leave") => void,
+): Promise<ApiResult<UnlistenFn>> {
+  try {
+    const unlisten = await getCurrentWebview().onDragDropEvent((e) => {
+      const p = e.payload;
+      if (p.type === "enter" || p.type === "drop") handler(p.paths, p.type);
+      else if (p.type === "leave") handler([], "leave");
+    });
+    return { ok: true, data: unlisten };
+  } catch (e) {
+    return { ok: false, user_message: "无法启用文件夹拖拽：" + toUserMessage(e) };
+  }
+}
+
+// 重新导出类型，便于上层（App/stores）标注事件 payload。
+export type { DragDropEvent };
