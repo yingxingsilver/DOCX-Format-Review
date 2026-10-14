@@ -261,7 +261,11 @@ export async function startAudit(): Promise<void> {
   selectedFile.set(null);
   notice.set(null);
   errorMessage.set(null);
-  const res = await api.startAudit({ input_dir: dir, rule_file: rule });
+  const res = await api.startAudit({
+    input_dir: dir,
+    rule_file: rule,
+    generate_annotated_docx: get(generateAnnotatedDocx),
+  });
   if (!guard(res)) return;
   if (res.ok) {
     jobId.set(res.data);
