@@ -94,6 +94,8 @@ export interface FileMeta {
 export interface AuditOptions {
   input_dir: string;
   rule_file: string;
+  /** 是否在审核完成后为每个文件生成标注版 DOCX（对应 Rust `AuditOptions::generate_annotated_docx`）。 */
+  generate_annotated_docx: boolean;
 }
 
 /**

@@ -157,7 +157,11 @@ describe("api.ts 错误归一化", () => {
   });
   it("startAudit 失败转 ApiResult.user_message", async () => {
     invokeMock.mockRejectedValue("审核任务启动失败：文件夹不存在");
-    const res = await api.startAudit({ input_dir: "/x", rule_file: "/y" });
+    const res = await api.startAudit({
+      input_dir: "/x",
+      rule_file: "/y",
+      generate_annotated_docx: false,
+    });
     expect(res).toEqual({ ok: false, user_message: "审核任务启动失败：文件夹不存在" });
   });
   it("pickInputDir 用户取消返回 data:null 而非错误", async () => {
@@ -202,6 +206,10 @@ describe("stores.ts 动作与状态机", () => {
     await stores.startAudit();
     expect(get(stores.status)).toBe("running");
     expect(get(stores.jobId)).toBe("job-1");
+    // UI 的「生成标注版 DOCX」开关必须透传给后端（P8A 修复回归）
+    expect(invokeMock).toHaveBeenCalledWith("start_audit", {
+      options: { input_dir: "/tmp/papers", rule_file: "/tmp/rules.json", generate_annotated_docx: false },
+    });
 
     // 过期 job 的事件必须被忽略（监听已注册，但 handler 按 job_id 过滤）
     fire("audit://done", { job_id: "stale", cancelled: false, report: makeReport() });
@@ -223,6 +231,19 @@ describe("stores.ts 动作与状态机", () => {
     expect(get(stores.status)).toBe("done");
     expect(get(stores.summary)?.total_files).toBe(1);
     expect(get(stores.notice)?.kind).toBe("success");
+  });
+
+  it("startAudit 勾选「生成标注版 DOCX」时透传 true", async () => {
+    stores.inputDir.set("/tmp/papers");
+    stores.rulePath.set("/tmp/rules.json");
+    stores.generateAnnotatedDocx.set(true);
+    invokeMock.mockResolvedValue("job-flag"); // start_audit
+    await stores.startAudit();
+    expect(invokeMock).toHaveBeenCalledWith("start_audit", {
+      options: { input_dir: "/tmp/papers", rule_file: "/tmp/rules.json", generate_annotated_docx: true },
+    });
+    // 收尾：让本轮 job 正常结束，避免残留 running 状态与监听影响后续用例
+    fire("audit://done", { job_id: "job-flag", cancelled: false, report: makeReport() });
   });
 
   it("audit://error 置 error 状态并展示中文消息", async () => {
