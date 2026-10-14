@@ -217,7 +217,48 @@ type XmlReader<'a> = Reader<std::io::Cursor<&'a [u8]>>;
 fn xml_reader(xml: &str) -> XmlReader<'_> {
     let mut reader = Reader::from_reader(std::io::Cursor::new(xml.as_bytes()));
     reader.config_mut().trim_text(false);
+    // 严格模式：未闭合标签、错配结束标签等良构性问题必须报错（而不是被当作文本吞掉），
+    // 损坏的 document.xml 应返回 CoreError::Xml → 上层转成 ReadFailed 友好文案。
+    reader.config_mut().check_end_names = true;
     reader
+}
+
+/// 良构性预校验：quick-xml 的 read_event_into 对“未闭合标签”不会主动报错，
+/// 这里用空元素栈把整份部件扫一遍，发现标签错配/未闭合即返回底层错误。
+fn ensure_well_formed(xml: &str, part: &str) -> CoreResult<()> {
+    let mut reader = xml_reader(xml);
+    let mut buf = Vec::new();
+    let mut stack: Vec<String> = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) => stack.push(String::from_utf8_lossy(e.name().as_ref()).into_owned()),
+            Ok(Event::End(e)) => {
+                let name = String::from_utf8_lossy(e.name().as_ref()).into_owned();
+                match stack.pop() {
+                    Some(open) if open == name => {}
+                    _ => {
+                        return Err(xml_err(
+                            part,
+                            quick_xml::Error::Text(format!(
+                                "unexpected closing tag </{name}> (unclosed or mismatched element)"
+                            )),
+                        ));
+                    }
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(xml_err(part, e)),
+            _ => {}
+        }
+        buf.clear();
+    }
+    if let Some(open) = stack.last() {
+        return Err(xml_err(
+            part,
+            quick_xml::Error::Text(format!("unclosed element <{open}> at end of document")),
+        ));
+    }
+    Ok(())
 }
 
 /// 跳过当前元素的剩余内容（配平同名嵌套）。调用点位于 Start 之后。
