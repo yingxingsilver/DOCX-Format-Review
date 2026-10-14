@@ -297,6 +297,10 @@ pub fn populate_derived(doc: &mut ParsedDocument) {
     doc.captions = captions;
     doc.citations = citations;
     doc.reference_entries = entries;
+
+    // 解析阶段事实回填：InTable/InHeader/ContainsCitation/FirstNonEmpty 标签、
+    // 题注邻近对象块与相对位置（由 docx_parser::annotate_derived_facts 提供）。
+    crate::docx_parser::annotate_derived_facts(doc);
 }
 
 #[cfg(test)]
